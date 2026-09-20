@@ -1,4 +1,4 @@
-"""Client for the callable 'Experiencia Los Panaderos' workflow (HackSpain folder, hackspainteam9).
+"""Client for the callable 'Obtener experiencia' workflow (HackSpain folder, hackspainteam9).
 
 Optional and off by default (LP_EXPERIENCE_WORKFLOW=1 enables it). Given the decision payload,
 the workflow reads world_state.episode_brief, judges which retrieved precedents apply and returns

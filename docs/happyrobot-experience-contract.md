@@ -94,7 +94,7 @@ These are proposed fields. The live response parser and dashboard do not yet
 preserve/display this attribution; the current interface reports only what was
 sent. Wire and validate the full output path before claiming confirmed use.
 
-## Callable workflow: Experiencia Los Panaderos (built, unpublished)
+## Callable workflow: Obtener experiencia (built, unpublished)
 
 Folder HackSpain, workspace hackspainteam9, workflow id `01a0bcfb-6ffd-76b6-82db-a13f57c58dd7`.
 It is a function the simulator calls before Los Panaderos; no existing workflow was edited.

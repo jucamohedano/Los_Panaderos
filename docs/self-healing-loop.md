@@ -13,7 +13,7 @@ flowchart LR
     B --> R[Retrieve similar graded cases<br/>experience.retrieve]
     F --> E[episode_brief<br/>bounded, evidence not orders]
     R --> E
-    E -->|optional| C[Experiencia workflow<br/>curates precedents]
+    E -->|optional| C[Obtener experiencia<br/>curates precedents]
     E --> H[HappyRobot<br/>Los Panaderos]
     C --> H
     H --> V[Simulator validates<br/>and applies]
@@ -54,7 +54,7 @@ flowchart TB
   subgraph hr["HappyRobot (hackspainteam9 / HackSpain)"]
     h1[Los Panaderos · live · untouched]
     h2[Post-mortem Los Panaderos · live · untouched]
-    h3[Experiencia Los Panaderos · new · callable · unpublished]
+    h3[Obtener experiencia · new · callable · unpublished]
   end
   subgraph jev["Jev (OpenRouter) · shadow only"]
     j1[Typed choice / score / escalate<br/>graded beside Central, never applied]
@@ -99,7 +99,7 @@ Hidden truth never enters any of these.
 ```mermaid
 sequenceDiagram
   participant Sim as Simulator
-  participant Ex as Experiencia Los Panaderos
+  participant Ex as Obtener experiencia
   participant LP as Los Panaderos (live)
   Sim->>Sim: forecast + retrieve + brief
   opt LP_EXPERIENCE_WORKFLOW=1
@@ -169,7 +169,7 @@ nothing is auto-published. The same rule bounds the Jev reflex.
 | Deterministic brief priorities are at least as good as the warning heuristic on held-out seeds | measured in the simulator | `docs/adaptation-evaluation.md` |
 | Replay of oracle plans beats hold, never worse, does not beat warning | measured in the simulator | `docs/learning-evaluation.md` |
 | HappyRobot decisions improve because of cases/brief | **not shown** | needs live runs with the payload; browser tests used scripted agents |
-| Experiencia workflow improves fleet mission fields | **not shown** | node tests pass; unpublished, no live run yet |
+| Obtener experiencia improves fleet mission fields | **not shown** | node tests pass; unpublished, no live run yet |
 | Jev shadow is typed, validated, fail-closed and never applied | measured | `tests/test_reflex.py`; live smoke: ~250 ms, routed to Central |
 | Jev reflex could safely replace Central on low-stakes orders | **not shown** | needs shadow agreement / regret evidence over many decisions (post-mortem `reflex` column, `/api/learning.reflex`) |
 
