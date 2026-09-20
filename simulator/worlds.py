@@ -285,6 +285,22 @@ def surprise(forecast_result, sim, plan='current_orders'):
                 forecast_issued_at=forecast_result.get('issued_at'), forecast_wind=forecast_result.get('wind'), wind_now=list(sim.wind))
 
 
+def premise_check(forecast_result, sim, plan='current_orders'):
+    """Surprise record for a wind change that invalidates every branch at once, before any checkpoint.
+
+    Returns ``None`` when the wind is still within the forecast's premise."""
+    summary = (forecast_result or {}).get('plans', {}).get(plan)
+    if not summary or not wind_premise_broken(forecast_result.get('wind'), sim.wind):
+        return None
+    dispersion = summary.get('dispersion', 0.)
+    return dict(tick=sim.tick, compared_to_tick=None, distance=None, terms=None, dispersion=dispersion,
+                threshold=round(min(DIVERGENCE_CEILING, max(DIVERGENCE_FLOOR, DIVERGENCE_RATIO*dispersion)), 4),
+                divergent=True, premise_broken=True,
+                what_changed=[f"wind changed from {forecast_result['wind']} to {list(sim.wind)}: every branch assumed the old wind"],
+                observed_cells=0, forecast_issued_at=forecast_result.get('issued_at'), forecast_wind=forecast_result.get('wind'),
+                wind_now=list(sim.wind))
+
+
 def wind_premise_broken(forecast_wind, wind_now):
     """True when the wind turned by PREMISE_WIND_ANGLE or more, or its strength moved by PREMISE_WIND_STRENGTH."""
     if forecast_wind is None:

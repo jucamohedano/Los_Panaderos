@@ -189,6 +189,20 @@ class SurpriseTests(unittest.TestCase):
         self.assertFalse(nudged['premise_broken'])
         self.assertTrue(any(c.startswith('wind changed') for c in nudged['what_changed']))
 
+    def test_premise_check_needs_no_checkpoint(self):
+        s = observing()
+        f = small(s)
+        self.assertIsNone(worlds.premise_check(f, s))
+        s.set_wind(x=.3, y=-1)
+        self.assertIsNone(worlds.premise_check(f, s))
+        s.set_wind(x=1, y=0)
+        result = worlds.premise_check(f, s)
+        self.assertTrue(result['divergent'] and result['premise_broken'])
+        self.assertIsNone(result['distance'])
+        self.assertEqual(result['wind_now'], [1, 0])
+        self.assertIn('every branch assumed the old wind', result['what_changed'][0])
+        self.assertIsNone(worlds.premise_check(None, s))
+
     def test_wind_premise_rule(self):
         self.assertFalse(worlds.wind_premise_broken(None, (1, 0)))
         self.assertFalse(worlds.wind_premise_broken((0, -1), (0, -1)))
@@ -267,6 +281,30 @@ class ControllerForecastTests(unittest.TestCase):
                     c.sim.step(); c._check_forecast()
                 self.assertEqual(len(c.surprises), 2)
                 self.assertEqual(len(c.state()['surprises']), 2)
+            finally:
+                c.robot.close(); c.box.close()
+
+    def test_operator_wind_turn_names_the_broken_premise_before_the_forecast_update(self):
+        with TemporaryDirectory() as tmp:
+            c = self._controller(tmp)
+            try:
+                c.last_decision_id = c.box.record_decision(c.sim, c.sim.payload(), 'r', 1., orders(c.sim), 'applied')
+                c.forecast = worlds.forecast(c.sim, horizon=8, branches=2, parallel=False)
+                c.sim.step()
+                with patch.object(c, 'request_decision') as request:
+                    c.action('wind', dict(x=1, y=.3))
+                    self.assertIsNone(c.sim.divergence)
+                    self.assertFalse(c.forecast_consumed)
+                    c.action('wind', dict(x=1, y=1))
+                self.assertEqual([call.args[0] for call in request.call_args_list], ['forecast_update', 'forecast_update'])
+                self.assertTrue(c.forecast_consumed)
+                self.assertTrue(c.sim.divergence['premise_broken'])
+                self.assertEqual(c.sim.divergence['wind_now'], [1, 1])
+                self.assertIn('every branch assumed the old wind', json.loads(c.sim.payload('forecast_update')['world_state'])['forecast_divergence']['what_changed'][0])
+                self.assertEqual(len(c.surprises), 1)
+                self.assertEqual(sum(s['divergent'] for s in c.box.surprises(c.sim.incident_id)), 1)
+                self.assertTrue(any('premise broken' in h['message'] for h in c.sim.history if h['source'] == 'forecast'))
+                self.assertIsNone(c.state()['divergence']['distance'])
             finally:
                 c.robot.close(); c.box.close()
 

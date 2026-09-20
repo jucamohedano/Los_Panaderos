@@ -99,6 +99,13 @@ The controller records the distance, threshold and named changes, then requests
 new HappyRobot decision. Human pause/control still applies. Forecasts do not
 automatically adjust the fire model's spread rate.
 
+A visible wind change is a second, checkpoint-free path: a turn of 45° or more,
+or a strength change of at least 1, breaks the premise every branch shared. An
+operator wind change invalidates the standing forecast on the spot and the
+`forecast_update` decision that follows carries `forecast_divergence` naming
+"every branch assumed the old wind"; a wind change first seen at a checkpoint
+raises `forecast_divergence` itself.
+
 Why this design: reproducible simulation makes expectations testable; partial
 observations prevent hindsight leakage; an ensemble and tolerance avoid
 treating ordinary random variation as a reason to change every order.

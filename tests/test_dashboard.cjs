@@ -82,7 +82,7 @@ test('Jev shadow card appears only when the reflex runs, names Central as decide
   h.put('s', frame({reflex: {mode: 'shadow', route: 'central', agreement: .5, latency_ms: 244, grade: {vs_central: 12.5}, orders: ['<scout-1: hold>']}}));
   h.run('render(s)');
   assert.equal(h.elements.get('adReflexMain').textContent, 'Central (HappyRobot)');
-  assert.match(h.elements.get('adReflexSub').textContent, /coincide 50% · 244 ms · habría escalado a Central · coste \+12\.5 vs Central/);
+  assert.match(h.elements.get('adReflexSub').textContent, /^Jev \(sombra\) · coincide 50% · 244 ms · habría escalado · coste \+12\.5 vs Central$/);
   assert.equal(h.elements.get('adaptReflex').title, '<scout-1: hold>');
   assert.ok(h.elements.get('adaptCards').classList.contains('has-reflex'));
   h.put('s', frame({replay: true, reflex: {mode: 'shadow', route: 'reflex'}})); h.run('render(s)');
@@ -454,8 +454,27 @@ test('futures panel renders the forecast, district threat, checks and divergence
   assert.match(tbody.innerHTML, /threat-high/); assert.match(tbody.innerHTML, /75%/); assert.match(tbody.innerHTML, /sin aviso \(6\/8\)/);
   assert.match(h.elements.get('divergence').innerHTML, /0.21 > umbral 0.062/); assert.match(h.elements.get('divergence').innerHTML, /&lt;b&gt;farm&lt;\/b&gt;/);
   assert.match(h.elements.get('surprises').innerHTML, /check-held/); assert.match(h.elements.get('surprises').innerHTML, /check-broke/);
+  const premise = {tick: 22, distance: null, threshold: 0.062, divergent: true, premise_broken: true, what_changed: ['wind changed from [1, 0] to [0, 1]: every branch assumed the old wind']};
+  h.run('render(' + JSON.stringify(frame({tick: 22, called: true, forecast, divergence: premise, surprises: [premise]})) + ')');
+  assert.match(h.elements.get('divergence').innerHTML, /Premisa rota en t=22: el viento cambió/); assert.doesNotMatch(h.elements.get('divergence').innerHTML, /null/);
+  assert.match(h.elements.get('surprises').innerHTML, /check-broke">t22: viento DIVERGE/);
   h.run('render(' + JSON.stringify(frame({tick: 24, replay: true, forecast, divergence, surprises})) + ')');
   assert.match(h.elements.get('forecastSummary').textContent, /Sin pronóstico/); assert.equal(tbody.innerHTML, ''); assert.equal(h.elements.get('divergence').innerHTML, '');
+});
+
+test('brief provenance names the deterministic SQLite source when no curator ran', async () => {
+  const h = await harness();
+  const experience = {brief: {text: 'x'.repeat(40), cases: [], lessons: []}, cases: []};
+  const learning = extra => JSON.stringify({episodes: [], lessons: [], experience: {...experience, ...extra}});
+  h.run('renderLearningData(' + learning({}) + ')');
+  assert.equal(h.elements.get('briefSent').hidden, false);
+  assert.match(h.elements.get('briefMeta').textContent, /^40 caracteres · 0 casos · 0 reglas · evidencia, no órdenes · resumen determinista \(SQLite, sin curador\)$/);
+  h.run('renderLearningData(' + learning({curator: {agent_used: true, confidence: 0.8}}) + ')');
+  assert.match(h.elements.get('briefMeta').textContent, /curado por HappyRobot \(confianza 0\.80\)$/);
+  h.run('renderLearningData(' + learning({curator: {agent_used: false}}) + ')');
+  assert.match(h.elements.get('briefMeta').textContent, /dejó el resumen determinista$/);
+  h.run("lang='en'; renderLearningData(" + learning({}) + ')');
+  assert.match(h.elements.get('briefMeta').textContent, /deterministic brief \(SQLite, no curator\)$/);
 });
 
 test('unknown status and radio-source names do not read inherited dictionary properties', async () => {

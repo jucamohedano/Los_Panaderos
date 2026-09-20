@@ -136,20 +136,33 @@ class Controller:
         if elapsed <= 0 or elapsed > forecast['horizon'] or elapsed % worlds.CHECKPOINT_EVERY:
             return
         result = worlds.surprise(forecast, self.sim)
-        if result is None:
+        if result is None or not self._record_surprise(result):
             return
+        if self.sim.called and not self.sim.pending_decision_event:
+            self.sim.pending_decision_event = 'forecast_divergence'
+
+    def _record_surprise(self, result):
+        """Keep the check; on divergence invalidate the forecast and name what changed. Returns whether it diverged."""
         self.surprises.append(result)
         self.surprises = self.surprises[-40:]
         if self.last_decision_id is not None:
             self.box.save_surprise(self.last_decision_id, result)
         if not result['divergent']:
-            return
+            return False
         self.forecast_consumed = True
         self.sim.divergence = result
-        self.sim.log('forecast', f"Forecast divergence: observed world is {result['distance']} from the forecast (threshold {result['threshold']}). "
-                     +('; '.join(result['what_changed'][:3]) or 'no single named cause'))
-        if self.sim.called and not self.sim.pending_decision_event:
-            self.sim.pending_decision_event = 'forecast_divergence'
+        measured = f"observed world is {result['distance']} from the forecast (threshold {result['threshold']})" \
+            if result['distance'] is not None else 'forecast premise broken'
+        self.sim.log('forecast', f"Forecast divergence: {measured}. "+('; '.join(result['what_changed'][:3]) or 'no single named cause'))
+        return True
+
+    def _wind_premise(self):
+        """An operator wind change invalidates the standing forecast at once; the forecast_update decision then carries the named reason."""
+        if not self.forecast or self.forecast_consumed or self.sim.phase != 'active':
+            return
+        result = worlds.premise_check(self.forecast, self.sim)
+        if result:
+            self._record_surprise(result)
 
     def postmortem(self):
         with self.lock:
@@ -491,6 +504,7 @@ class Controller:
             elif action == 'wind':
                 self.sim.set_wind(data.get('direction','east'),data.get('x'),data.get('y'))
                 if self.sim.called:
+                    self._wind_premise()
                     self.request_decision('forecast_update')
             elif action == 'call':
                 self.sim.farmer_call(str(data.get('message',''))[:2000].strip())
