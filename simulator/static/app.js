@@ -285,6 +285,38 @@ const STATUS_I18N={
 es:{at_station:'en base',mobilizing:'movilizando',en_route:'en ruta',suppressing:'suprimiendo',returning:'regresando',retreating:'replegando',blocked:'bloqueado',trapped:'atrapado',holding:'en espera',awaiting_assignment:'esperando misión',hold:'mantener',scout:'explorar',contain:'contener',warn:'avisar',patrol:'patrullando',continue:'continuar',on_scene:'en zona',evacuate_town:'avisar distrito',evacuate_farm:'avisar granja',unwarned:'sin aviso',evacuating:'evacuando',safe:'a salvo',burnt:'expuestos'},
 en:{at_station:'at station',mobilizing:'mobilizing',en_route:'en route',suppressing:'suppressing',returning:'returning',retreating:'retreating',blocked:'blocked',trapped:'trapped',holding:'holding',awaiting_assignment:'awaiting assignment',hold:'hold',scout:'scout',contain:'contain',warn:'warn',patrol:'patrolling',continue:'continue',on_scene:'on scene',evacuate_town:'warn district',evacuate_farm:'warn farm',unwarned:'unwarned',evacuating:'evacuating',safe:'safe',burnt:'exposed'}
 };
+Object.assign(I18N.es,{
+  learningNote:'Casos anteriores y lecciones enviados como contexto; recibirlos no demuestra que el agente los haya usado. Regret mide la diferencia de coste frente al mejor plan encontrado por el oráculo: menor es mejor. Las medias entre incidentes y con/sin lección son comparaciones descriptivas, no una prueba causal de mejora.',
+  adapt:'Cómo decide y aprende',adaptHint:'Abre una etapa para ver la evidencia',closeInsight:'Cerrar',
+  adFuture:'Anticipar',adChange:'Adaptar',adMemory:'Recordar',adLearn:'Evaluar',
+  adFutureNone:'Espera la primera decisión',adForecast:n=>`${n} futuros simulados`,
+  adThreat:(name,p)=>`${name} · ${p}% de ramas con fuego cercano`,
+  adWaiting:'Sin comprobar',adChecking:'Contrastar con nuevas observaciones',
+  adRecheck:'Nuevo plan sin comprobar',adPrevious:t=>`El pronóstico anterior se desvió en t=${t}`,
+  adHeld:'Dentro de lo previsto',adDiverged:'Replanificación solicitada',
+  adCheck:t=>`Última comprobación · t=${t}`,adReplay:'Reproducción · evidencia en vivo oculta',
+  adCases:n=>`${n} casos enviados`,adLessons:n=>`${n} lecciones enviadas · uso no confirmado`,
+  adNoMemory:'Espera la primera decisión',adMemoryNone:'Sin precedentes similares',
+  adNoGrades:'Aún sin evaluar',adLoading:'Cargando evaluación…',adUnavailable:'Evaluación no disponible',
+  adRegret:(a,b)=>`${a} → ${b}`,adEpisodes:n=>`${n} incidentes · regret medio, menor es mejor`,
+  adCaution:'Comparación descriptiva; no demuestra aprendizaje.',
+});
+Object.assign(I18N.en,{
+  learningNote:'Past cases and lessons sent as context; receiving them does not prove the agent used them. Regret is the cost gap to the best plan found by the oracle: lower is better. Incident averages and with/without-lesson comparisons are descriptive, not causal evidence of improvement.',
+  adapt:'How it decides and learns',adaptHint:'Open a stage to inspect the evidence',closeInsight:'Close',
+  adFuture:'Anticipate',adChange:'Adapt',adMemory:'Recall',adLearn:'Evaluate',
+  adFutureNone:'Waiting for the first decision',adForecast:n=>`${n} simulated futures`,
+  adThreat:(name,p)=>`${name} · ${p}% of branches with nearby fire`,
+  adWaiting:'Not checked yet',adChecking:'Compare with new observations',
+  adRecheck:'New plan not checked',adPrevious:t=>`The previous forecast diverged at t=${t}`,
+  adHeld:'Within the forecast',adDiverged:'Replanning requested',
+  adCheck:t=>`Latest check · t=${t}`,adReplay:'Replay · live evidence hidden',
+  adCases:n=>`${n} cases sent`,adLessons:n=>`${n} lessons sent · use unconfirmed`,
+  adNoMemory:'Waiting for the first decision',adMemoryNone:'No similar precedents',
+  adNoGrades:'Not yet evaluated',adLoading:'Loading evaluation…',adUnavailable:'Evaluation unavailable',
+  adRegret:(a,b)=>`${a} → ${b}`,adEpisodes:n=>`${n} incidents · mean regret, lower is better`,
+  adCaution:'Descriptive comparison; does not prove learning.',
+});
 function statusText(v){const labels=STATUS_I18N[lang]||{};return Object.hasOwn(labels,v)?labels[v]:v}
 function updateErrors(){const messages=[clientError,pollingError,state?.error].filter(Boolean);$('error').textContent=[...new Set(messages)].join('\n');$('error').hidden=!messages.length}
 function setClientError(error){clientError=error?.message||String(error);updateErrors()}
@@ -506,7 +538,7 @@ $('beliefstats').textContent=`${s.observation.length} ${t.firesShared} · ${obse
   el.textContent=`${label} · ${g.count.toLocaleString(lang==='es'?'es-ES':'en-US')} · ${statusText(g.status)}${g.burnt?` · ${g.burnt.toLocaleString(lang==='es'?'es-ES':'en-US')} ${t.exposedLbl}`:''}`;
   return el;
 }));renderRadio(s);$('evidence').textContent=s.run_evidence||'';document.querySelectorAll('.toolbar button,.toolbar select').forEach(b=>{if(b.id==='play'||b.id==='addFire')return;b.disabled=s.busy||s.replay});$('resetSim').disabled=!!s.reset_pending;$('resetSim').textContent=s.reset_pending?t.resetQueued:t.reset;renderFleet(s);renderFireControl(s);$('play').disabled=s.replay||s.busy&&!s.running;$('recordRun').disabled=s.busy||s.replay||s.recording;$('stopRecord').disabled=!s.recording;$('downloadRecord').disabled=!s.recorded_frames;$('playRecord').disabled=busy||s.replay||!s.recorded_frames||s.recording;$('openRecording').disabled=s.busy||s.replay;$('recordRun').textContent=s.recording?`${t.recordingLabel} · ${s.recorded_frames} ${t.framesLabel}`:t.recordRun;
-applyMapMode();renderForecast(s);
+applyMapMode();renderForecast(s);renderAdaptation(s);
 try{pixelMap($('belief'),s,true);if(!$('truth').hidden)pixelMap($('truth'),s,false)}catch(e){console.error('Canvas render failed',e)}}
 // Futures panel: the belief-world ensemble behind the last decision, and whether observation has since contradicted it.
 function renderForecast(s){
@@ -522,7 +554,46 @@ function renderForecast(s){
   $('surprises').innerHTML=(s.surprises||[]).length?`<strong>${t.fcChecks}</strong> `+(s.surprises||[]).map(x=>`<span class="check ${x.divergent?'check-broke':'check-held'}">t${x.tick}: ${x.distance}/${x.threshold} ${x.divergent?t.fcBroke:t.fcHeld}</span>`).join(' '):'';
 }
 // Post-mortem panel: black box decisions graded by the hindsight oracle, with reflections.
-let pollCount=0;
+let pollCount=0,learningData=null,learningFailed=false,learningRequest=0,insightPanel=null;
+function renderAdaptation(s){
+  const t=I18N[lang],replay=!!s.replay,f=replay?null:s.forecast;
+  const set=(id,text)=>{$(id).textContent=text};
+  const top=Object.entries(f?.districts||{}).sort((a,b)=>b[1].p_fire_within_8-a[1].p_fire_within_8)[0];
+  set('adFutureMain',f?t.adForecast(f.branches):'—');
+  set('adFutureSub',replay?t.adReplay:top?t.adThreat(s.people?.[top[0]]?.name||top[0],Math.round(top[1].p_fire_within_8*100)):t.adFutureNone);
+  const last=replay?null:(s.surprises||[]).slice(-1)[0],diverged=!replay&&!!s.divergence;
+  const needsCheck=last&&(last.divergent||(f&&last.tick<=f.issued_at));
+  $('adaptChange').classList.toggle('is-diverged',diverged);
+  set('adChangeMain',diverged?t.adDiverged:needsCheck?t.adRecheck:last?t.adHeld:t.adWaiting);
+  set('adChangeSub',replay?t.adReplay:diverged?(s.divergence.what_changed||[]).join(' · '):needsCheck&&last.divergent?t.adPrevious(last.tick):last?t.adCheck(last.tick):t.adChecking);
+  const x=replay?null:s.experience;
+  set('adMemoryMain',x?t.adCases((x.cases||[]).length):'—');
+  set('adMemorySub',replay?t.adReplay:x?t.adLessons((x.lessons||[]).length):t.adNoMemory);
+  const eps=replay?[]:(learningData?.episodes||[]).filter(e=>e.graded>0&&Number.isFinite(e.mean_regret));
+  set('adLearnMain',eps.length?t.adRegret(eps[0].mean_regret,eps[eps.length-1].mean_regret):'—');
+  set('adLearnSub',replay?t.adReplay:learningFailed?t.adUnavailable:!learningData?t.adLoading:eps.length?t.adEpisodes(eps.length):t.adNoGrades);
+  $('adLearnChart').innerHTML=eps.length>1?sparkline(eps.map(e=>e.mean_regret),240,22):'';
+  $('adaptLearn').title=t.adCaution;
+  $('insightReplay').hidden=!replay;
+  if(insightPanel)$(insightPanel).hidden=replay;
+  if(insightPanel)$('insightTitle').textContent=t[{forecastPanel:'forecast',learningPanel:'learning',postmortemPanel:'postmortem'}[insightPanel]];
+}
+function openInsight(panel){
+  insightPanel=panel;
+  for(const id of ['forecastPanel','learningPanel','postmortemPanel']){
+    $(id).hidden=id!==panel||!!state?.replay;$(id).open=id===panel;
+  }
+  $('insightTitle').textContent=I18N[lang][{forecastPanel:'forecast',learningPanel:'learning',postmortemPanel:'postmortem'}[panel]];
+  if(state)renderAdaptation(state);
+  $('insightDialog').showModal();
+  if(!state?.replay){
+    if(panel==='learningPanel')renderLearning();
+    if(panel==='postmortemPanel')renderPostmortem();
+  }
+}
+for(const [id,panel] of Object.entries({adaptForecast:'forecastPanel',adaptChange:'forecastPanel',adaptMemory:'learningPanel',adaptLearn:'learningPanel',openPostmortem:'postmortemPanel'})){
+  $(id).onclick=()=>openInsight(panel);
+}
 function escapeHTML(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function summarizeOrders(d){
   if(!d||typeof d!=='object')return '—';
@@ -532,8 +603,9 @@ function summarizeOrders(d){
   return parts.length?parts.join(' · '):(d.primary_command||'—');
 }
 async function renderPostmortem(){
-  const t=I18N[lang];let p;
+  const t=I18N[lang],epoch=viewEpoch;let p;
   try{p=await responseJSON(await fetch('/api/postmortem'),t.serverUnavailable)}catch(e){return}
+  if(epoch!==viewEpoch||state?.replay)return;
   if(!$('postmortem'))return;
   $('lessons').innerHTML=p.lessons&&p.lessons.length?`<strong>${t.pmLessons}</strong><ul>${p.lessons.map(l=>`<li>${escapeHTML(l)}</li>`).join('')}</ul>`:'';
   const body=$('postmortem').querySelector('tbody');
@@ -553,8 +625,18 @@ function sparkline(values,w=240,h=48){
   return `<svg class="spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"><polyline fill="none" stroke="#ffb74d" stroke-width="2" points="${xy.map(p=>p.map(x=>x.toFixed(1)).join(',')).join(' ')}"/>${xy.map((p,i)=>`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="${pts[i]>0?'#ff8a80':'#a5d6a7'}"><title>${pts[i]}</title></circle>`).join('')}</svg>`;
 }
 async function renderLearning(){
-  const t=I18N[lang];let p;
-  try{p=await responseJSON(await fetch('/api/learning'),t.serverUnavailable)}catch(e){return}
+  const t=I18N[lang],epoch=viewEpoch,request=++learningRequest;let p;
+  try{p=await responseJSON(await fetch('/api/learning'),t.serverUnavailable)}catch(e){
+    if(epoch===viewEpoch&&request===learningRequest&&!state?.replay){
+      learningData=null;learningFailed=true;if(state)renderAdaptation(state);
+      $('learningCurve').textContent=t.adUnavailable;
+      const body=$('learningEpisodes')?.querySelector?.('tbody');if(body)body.innerHTML='';
+      $('experienceUsed').innerHTML='';$('lessonLedger').innerHTML='';
+    }
+    return;
+  }
+  if(epoch!==viewEpoch||request!==learningRequest||state?.replay)return;
+  learningData=p;learningFailed=false;if(state)renderAdaptation(state);
   const body=$('learningEpisodes')?.querySelector?.('tbody');
   if(!$('learningCurve')||!body)return;
   const eps=(p.episodes||[]).filter(e=>e.graded>0);
@@ -576,7 +658,7 @@ async function poll(){
     if(epoch!==viewEpoch||recordingPlayback||requestsInFlight)return;
     pollingError='';render(s);
     if(pollCount%5===0&&$('postmortemPanel')&&$('postmortemPanel').open)renderPostmortem();
-    if(pollCount++%5===0&&$('learningPanel')&&$('learningPanel').open)renderLearning();
+    pollCount++;
   }catch(e){
     if(epoch===viewEpoch&&!recordingPlayback&&!requestsInFlight){pollingError=I18N[lang].serverUnavailable;updateErrors();$('connection').textContent=pollingError}
   }finally{setTimeout(poll,600)}
@@ -590,6 +672,11 @@ if(learningPanel&&learningPanel.addEventListener)learningPanel.addEventListener(
 applyLang();
 // The simulator must stay usable even if the map cannot start at all.
 applyMapMode();poll();
+async function refreshLearning(){
+  try{if(!state?.replay&&!recordingPlayback&&!requestsInFlight)await renderLearning()}
+  finally{setTimeout(refreshLearning,3000)}
+}
+setTimeout(refreshLearning,1000);
 
 function updateWindPreview(){const t=I18N[lang];const x=+$('windX').value,y=+$('windY').value;$('windXValue').textContent=x.toFixed(2);$('windYValue').textContent=y.toFixed(2);$('windStrength').textContent=`${t.windStrength} ${Math.hypot(x,y).toFixed(2)}${Math.hypot(x,y)>=2?t.windStrong:""}`;$('windPending').textContent=windDirty?t.windPreview:t.windApplied;const px=43+Math.sign(x)*Math.sqrt(Math.abs(x)/3)*30,py=43+Math.sign(y)*Math.sqrt(Math.abs(y)/3)*30;$('windArrow').setAttribute('d',`M43 43 L${px} ${py}`);$('windTip').setAttribute('cx',px);$('windTip').setAttribute('cy',py)}
 for(const id of ['windX','windY'])$(id).oninput=()=>{windDirty=true;updateWindPreview()};

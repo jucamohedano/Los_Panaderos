@@ -36,8 +36,93 @@ class Element {
   replaceChildren(...children) {this.children = children;}
   append(...children) {this.children.push(...children);}
   click() {if (!this.disabled) return this.onclick?.({currentTarget: this, target: this});}
+  showModal() {this.open = true;}
   getBoundingClientRect() {return {left: 0, top: 0, width: 800, height: 560};}
 }
+
+test('adaptive summary precedes maps and separates sent experience from confirmed use', async () => {
+  const h = await harness();
+  assert.ok(html.indexOf('id="adaptStrip"') < html.indexOf('<main class="maps">'));
+  h.put('s', frame({forecast: {branches: 8, districts: {farm: {p_fire_within_8: .75}}},
+    experience: {cases: [{decision_id: 2}], lessons: [{id: 1}]}}));
+  h.run('render(s)');
+  assert.match(h.elements.get('adFutureMain').textContent, /8/);
+  assert.match(h.elements.get('adFutureSub').textContent, /75%/);
+  assert.match(h.elements.get('adMemoryMain').textContent, /1 casos enviados/);
+  assert.match(h.elements.get('adMemorySub').textContent, /uso no confirmado/);
+  assert.match(h.elements.get('adChangeMain').textContent, /Sin comprobar/);
+  h.run("lang='en'; render(s)");
+  assert.match(h.elements.get('adMemorySub').textContent, /use unconfirmed/);
+});
+
+test('adaptation distinguishes divergence, checked state, reset and replay', async () => {
+  const h = await harness();
+  h.put('s', frame({divergence: {what_changed: ['<wind changed>']}, experience: {cases: [{}], lessons: []}}));
+  h.run('render(s)');
+  assert.ok(h.elements.get('adaptChange').classList.contains('is-diverged'));
+  assert.equal(h.elements.get('adChangeSub').textContent, '<wind changed>');
+  h.put('s', frame({surprises: [{tick: 4, divergent: false}]})); h.run('render(s)');
+  assert.match(h.elements.get('adChangeMain').textContent, /Dentro de lo previsto/);
+  assert.equal(h.elements.get('adaptChange').classList.contains('is-diverged'), false);
+  h.put('s', frame()); h.run('render(s)');
+  assert.equal(h.elements.get('adMemoryMain').textContent, '—');
+  h.put('s', frame({replay: true, experience: {cases: [{}]}, divergence: {what_changed: ['stale']}})); h.run('render(s)');
+  assert.equal(h.elements.get('adMemoryMain').textContent, '—');
+  assert.match(h.elements.get('adChangeSub').textContent, /Reproducción/);
+});
+
+test('adaptive evidence opens in a dialog without page scrolling and hides live panels in replay', async () => {
+  const h = await harness();
+  h.elements.get('adaptForecast').click();
+  assert.equal(h.elements.get('insightDialog').open, true);
+  assert.equal(h.elements.get('forecastPanel').hidden, false);
+  assert.equal(h.elements.get('learningPanel').hidden, true);
+  h.put('s', frame({replay: true})); h.run('render(s)');
+  assert.equal(h.elements.get('forecastPanel').hidden, true);
+  assert.equal(h.elements.get('insightReplay').hidden, false);
+});
+
+test('a completed replan never relabels its divergent checkpoint as a passed check', async () => {
+  const h = await harness();
+  h.put('s', frame({forecast: {issued_at: 24, branches: 8},
+    surprises: [{tick: 24, divergent: true}], divergence: null}));
+  h.run('render(s)');
+  assert.equal(h.elements.get('adChangeMain').textContent, 'Nuevo plan sin comprobar');
+  assert.match(h.elements.get('adChangeSub').textContent, /anterior se desvió en t=24/);
+  h.run('s.surprises.push({tick:28,divergent:false}); render(s)');
+  assert.equal(h.elements.get('adChangeMain').textContent, 'Dentro de lo previsto');
+  h.run('s.forecast.issued_at=28; render(s)');
+  assert.equal(h.elements.get('adChangeMain').textContent, 'Nuevo plan sin comprobar');
+});
+
+test('regret summary is descriptive, refreshes with panels closed and does not retain failed data', async () => {
+  const h = await harness();
+  h.handler = () => response({episodes: [{graded: 1, mean_regret: 100}, {graded: 1, mean_regret: 20}], lessons: []});
+  await h.run('refreshLearning()');
+  assert.equal(h.elements.get('learningPanel').open, false);
+  assert.equal(h.elements.get('adLearnMain').textContent, '100 → 20');
+  assert.match(h.elements.get('adaptLearn').title, /no demuestra aprendizaje/);
+  assert.match(h.elements.get('adLearnChart').innerHTML, /polyline/);
+  h.handler = () => {throw Error('offline');};
+  await h.run('renderLearning()');
+  assert.equal(h.elements.get('adLearnMain').textContent, '—');
+  assert.match(h.elements.get('adLearnSub').textContent, /no disponible/);
+});
+
+test('late learning responses cannot overwrite a newer response or replay', async () => {
+  const h = await harness(), gate = deferred();
+  h.handler = () => gate.promise;
+  const slow = h.run('renderLearning()');
+  h.handler = () => response({episodes: [{graded: 1, mean_regret: 10}]});
+  await h.run('renderLearning()');
+  gate.resolve(response({episodes: [{graded: 1, mean_regret: 999}]})); await slow;
+  assert.equal(h.elements.get('adLearnMain').textContent, '10 → 10');
+  const replayGate = deferred(); h.handler = () => replayGate.promise;
+  const late = h.run('renderLearning()');
+  h.put('s', frame({replay: true})); h.run('render(s)');
+  replayGate.resolve(response({episodes: [{graded: 1, mean_regret: 0}]})); await late;
+  assert.equal(h.elements.get('adLearnMain').textContent, '—');
+});
 
 async function harness() {
   const elements = new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(match => [match[1], new Element(match[1])]));

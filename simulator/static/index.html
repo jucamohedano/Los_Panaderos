@@ -59,6 +59,28 @@
   <div id="people" class="unit-tags"></div>
 </section>
 
+<section class="adapt" id="adaptStrip" aria-labelledby="adaptLbl">
+  <div class="adapt-head"><h2 id="adaptLbl" data-i18n="adapt">Cómo decide y aprende</h2><span data-i18n="adaptHint">Abre una etapa para ver la evidencia</span></div>
+  <div class="adapt-cards">
+    <button type="button" class="adapt-card" id="adaptForecast" aria-haspopup="dialog">
+      <span class="adapt-step">01</span><span class="adapt-title" data-i18n="adFuture">Anticipar</span>
+      <strong id="adFutureMain">—</strong><small id="adFutureSub" data-i18n="adFutureNone">Sin pronóstico todavía</small>
+    </button>
+    <button type="button" class="adapt-card" id="adaptChange" aria-haspopup="dialog">
+      <span class="adapt-step">02</span><span class="adapt-title" data-i18n="adChange">Adaptar</span>
+      <strong id="adChangeMain">—</strong><small id="adChangeSub"></small>
+    </button>
+    <button type="button" class="adapt-card" id="adaptMemory" aria-haspopup="dialog">
+      <span class="adapt-step">03</span><span class="adapt-title" data-i18n="adMemory">Recordar</span>
+      <strong id="adMemoryMain">—</strong><small id="adMemorySub"></small>
+    </button>
+    <button type="button" class="adapt-card" id="adaptLearn" aria-haspopup="dialog">
+      <span class="adapt-step">04</span><span class="adapt-title" data-i18n="adLearn">Evaluar</span>
+      <strong id="adLearnMain">—</strong><small id="adLearnSub"></small><span id="adLearnChart" aria-hidden="true"></span>
+    </button>
+  </div>
+</section>
+
 <main class="maps">
   <article class="map-card">
     <div class="maptitle"><h2 id="truthTitle" data-i18n="truth">Situación real</h2><span id="truthTag">BRUNETE · TERRENO ILUSTRADO</span></div>
@@ -155,6 +177,14 @@
 <footer>
   <span id="footerNote" data-i18n="footerNote">HappyRobot decide. Ilustración inspirada en Brunete; rejilla educativa, no Rothermel/Catastro. El reloj se pausa durante la deliberación; la reproducción no llama a la IA.</span>
   <details><summary id="inspectLbl" data-i18n="inspect">Registro técnico de HappyRobot</summary><pre id="evidence"></pre></details>
+  <button type="button" id="openPostmortem" data-i18n="postmortem" aria-haspopup="dialog">Post-mortem · oráculo y reflexión</button>
+  <a id="workflow" target="_blank" rel="noopener" data-i18n="workflow">Flujo</a>
+  <div class="attribution"><a href="https://brunete.org/nuestro-pueblo/datos-estadisticos/" data-i18n="censusLink">Ayuntamiento de Brunete · padrón 2025</a><span data-i18n="censusAssumptions">Distribución por distritos estimada; ocupación de granja y refugios supuestos.</span><span data-i18n="pnoaIntro">Ilustración adaptada de una referencia</span> <a href="https://pnoa.ign.es/pnoa-imagen/ortofotos-pnoa-maxima-actualidad">PNOA</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0 scne.es</a></div>
+</footer>
+<dialog id="insightDialog" aria-labelledby="insightTitle">
+  <div class="insight-head"><h2 id="insightTitle"></h2><form method="dialog"><button data-i18n="closeInsight" autofocus>Cerrar</button></form></div>
+  <p id="insightReplay" data-i18n="adReplay" hidden>Reproducción · evidencia en vivo oculta</p>
+  <div class="insight-body">
   <details id="forecastPanel"><summary id="forecastLbl" data-i18n="forecast">Futuros · mundos posibles</summary>
     <p class="postmortem-note" data-i18n="forecastNote">Ensamble de rollouts del mundo tal como el sistema lo cree (sin fuego oculto). Si lo observado contradice el pronóstico, se emite forecast_divergence y el agente replanifica. Frecuencias del modelo, no predicción operativa.</p>
     <div id="forecastSummary"></div>
@@ -175,9 +205,8 @@
     <div id="experienceUsed"></div>
     <div id="lessonLedger"></div>
   </details>
-  <a id="workflow" target="_blank" rel="noopener" data-i18n="workflow">Flujo</a>
-  <div class="attribution"><a href="https://brunete.org/nuestro-pueblo/datos-estadisticos/" data-i18n="censusLink">Ayuntamiento de Brunete · padrón 2025</a><span data-i18n="censusAssumptions">Distribución por distritos estimada; ocupación de granja y refugios supuestos.</span><span data-i18n="pnoaIntro">Ilustración adaptada de una referencia</span> <a href="https://pnoa.ign.es/pnoa-imagen/ortofotos-pnoa-maxima-actualidad">PNOA</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0 scne.es</a></div>
-</footer>
+  </div>
+</dialog>
 </div>
 <script src="/vendor/bootstrap-icons.js"></script>
 <script src="/observation-map.js"></script>

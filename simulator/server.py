@@ -467,7 +467,7 @@ def serve(port=8765):
             elif path == '/api/state':
                 self.reply(200, controller.state())
             elif path == '/api/learning':
-                self.send_json(CONTROLLER.learning())
+                self.reply(200, controller.learning())
             elif path == '/api/postmortem':
                 self.reply(200, controller.postmortem())
             elif path == '/api/config':

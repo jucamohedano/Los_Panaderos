@@ -80,3 +80,22 @@ footer{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px;font-size:1
 #learningCurve{font-size:11px;margin-top:6px}.spark{display:block;margin-top:4px}.trend-down{color:#a5d6a7}.trend-up{color:#ff8a80}
 #experienceUsed,#lessonLedger{font-size:11px;margin-top:6px}#experienceUsed li,#lessonLedger li{margin:4px 0}.lesson-retired{color:var(--muted);text-decoration:line-through}
 .lesson-toggle{font-size:10px;padding:1px 6px;margin-left:4px}.muted{color:var(--muted)}
+.adapt{margin:0 0 12px;border:1px solid #425653;border-radius:8px;background:linear-gradient(110deg,#192726,#181e23);overflow:hidden}
+.adapt-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:10px 14px 8px}
+.adapt-head h2{font-size:13px;font-weight:650}.adapt-head>span{font-size:11px;color:var(--muted)}
+.adapt-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+.adapt-card{position:relative;min-width:0;text-align:left;border:0;border-top:1px solid #425653;border-radius:0;background:transparent;padding:10px 14px 12px;display:grid;grid-template-columns:24px 1fr;align-content:start;gap:5px}
+.adapt-card+.adapt-card{border-left:1px solid #425653}.adapt-card:hover{background:#253735}
+.adapt-card:focus-visible{outline-offset:-3px}.adapt-step{font:10px var(--meta);color:#90b9b2;padding-top:2px}
+.adapt-title{font-size:11px;color:#b1c9c4}.adapt-card strong,.adapt-card small{grid-column:1/-1}
+.adapt-card strong{font-size:17px;line-height:1.3;font-weight:650;color:var(--ink)}
+.adapt-card small{font-size:11px;color:var(--muted);line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.adapt-card.is-diverged{background:#392821;box-shadow:inset 0 3px #e4b862}.adapt-card.is-diverged strong{color:var(--warn)}
+#adLearnChart{grid-column:1/-1}#adLearnChart .spark{width:100%;height:22px;margin:0}
+#insightDialog{width:min(960px,94vw);max-height:86dvh;padding:0;background:var(--panel);color:var(--ink);border:1px solid #52616b;border-radius:12px;box-shadow:0 20px 80px #0008}
+#insightDialog::backdrop{background:#071013b8;backdrop-filter:blur(4px)}
+.insight-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel);z-index:1}
+.insight-head h2{font-size:17px}.insight-body{padding:20px;overflow-x:auto}.insight-body>details>summary{display:none}
+.insight-body .postmortem-note{font-size:12px;line-height:1.6;margin-bottom:14px}
+#insightReplay{padding:16px}body:has(#insightDialog[open]){overflow:hidden}
+@media(max-width:800px){.adapt-head>span{display:none}.adapt-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.adapt-card:nth-child(3){border-left:0}.adapt-card strong{font-size:15px}}
