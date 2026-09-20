@@ -82,7 +82,7 @@ test('Jev shadow card appears only when the reflex runs, names Central as decide
   h.put('s', frame({reflex: {mode: 'shadow', route: 'central', agreement: .5, latency_ms: 244, grade: {vs_central: 12.5}, orders: ['<scout-1: hold>']}}));
   h.run('render(s)');
   assert.equal(h.elements.get('adReflexMain').textContent, 'Central (HappyRobot)');
-  assert.match(h.elements.get('adReflexSub').textContent, /^Jev \(sombra\) · coincide 50% · 244 ms · habría escalado · coste \+12\.5 vs Central$/);
+  assert.match(h.elements.get('adReflexSub').textContent, /^Jev \(sombra\) · coincide 50% · 244 ms · escalaría · coste \+12\.5 vs Central$/);
   assert.equal(h.elements.get('adaptReflex').title, '<scout-1: hold>');
   assert.ok(h.elements.get('adaptCards').classList.contains('has-reflex'));
   h.put('s', frame({replay: true, reflex: {mode: 'shadow', route: 'reflex'}})); h.run('render(s)');
