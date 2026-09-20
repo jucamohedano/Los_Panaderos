@@ -64,6 +64,11 @@ footer{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px;font-size:1
 .fire-placement-hint{font-size:10px;padding:5px 10px;color:var(--warn);background:#302820}
 .is-adding-fire .map-card:first-child{border-color:#b7864e}
 #truth.fire-placement{cursor:url("/flamethrower-cursor.svg") 5 5,crosshair}
+/* Futures panel: possible-worlds ensemble and forecast checks */
+#forecastSummary,#divergence,#surprises{font-size:12px;margin:6px 0}#divergence{color:#ffd180}#divergence ul{margin:4px 0 0 16px;padding:0}
+#forecastDistricts{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px}#forecastDistricts th,#forecastDistricts td{padding:3px 6px;border-bottom:1px solid var(--line);text-align:left}
+#forecastDistricts tr.threat-high td{color:#ff8a80}#forecastDistricts tr.threat-some td{color:#ffd180}#forecastDistricts tr.threat-none td{color:#a5d6a7}
+#surprises .check{display:inline-block;padding:1px 6px;border:1px solid var(--line);border-radius:3px;margin:2px 2px 0 0}#surprises .check-held{color:#a5d6a7}#surprises .check-broke{color:#ff8a80;border-color:#ff8a80}
 /* Post-mortem panel: oracle grades and reflections */
 .postmortem-note{font-size:11px;color:var(--muted);margin:6px 0}
 #lessons,#patches{font-size:12px;margin:6px 0}#lessons ul,#patches ul{margin:4px 0 0 16px;padding:0}#lessons li{color:#cfe8c8}

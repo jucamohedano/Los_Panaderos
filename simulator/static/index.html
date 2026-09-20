@@ -155,6 +155,13 @@
 <footer>
   <span id="footerNote" data-i18n="footerNote">HappyRobot decide. Ilustración inspirada en Brunete; rejilla educativa, no Rothermel/Catastro. El reloj se pausa durante la deliberación; la reproducción no llama a la IA.</span>
   <details><summary id="inspectLbl" data-i18n="inspect">Registro técnico de HappyRobot</summary><pre id="evidence"></pre></details>
+  <details id="forecastPanel"><summary id="forecastLbl" data-i18n="forecast">Futuros · mundos posibles</summary>
+    <p class="postmortem-note" data-i18n="forecastNote">Ensamble de rollouts del mundo tal como el sistema lo cree (sin fuego oculto). Si lo observado contradice el pronóstico, se emite forecast_divergence y el agente replanifica. Frecuencias del modelo, no predicción operativa.</p>
+    <div id="forecastSummary"></div>
+    <table id="forecastDistricts"><thead><tr><th data-i18n="fcDistrict">Distrito</th><th data-i18n="fcThreat">P(fuego a ≤8 celdas)</th><th data-i18n="fcOutcome">Resultado más probable</th></tr></thead><tbody></tbody></table>
+    <div id="divergence"></div>
+    <div id="surprises"></div>
+  </details>
   <details id="postmortemPanel"><summary id="postmortemLbl" data-i18n="postmortem">Post-mortem · oráculo y reflexión</summary>
     <p class="postmortem-note" data-i18n="postmortemNote">El oráculo evalúa con retrospectiva (conoce el fuego oculto). Nunca decide; solo mide. Promover un parche es humano.</p>
     <div id="lessons"></div>

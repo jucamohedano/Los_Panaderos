@@ -324,6 +324,26 @@ test('post-mortem panel renders oracle grades, gaps, reflections and lessons', a
   assert.match(h.elements.get('patches').innerHTML, /v2/);
 });
 
+test('futures panel renders the forecast, district threat, checks and divergence; replay hides it', async () => {
+  const h = await harness();
+  assert.match(html, /id="forecastPanel"/); assert.match(html, /id="forecastDistricts"/);
+  const tbody = new Element('tbody');
+  h.elements.get('forecastDistricts').querySelector = selector => selector === 'tbody' ? tbody : null;
+  h.run('render(' + JSON.stringify(frame()) + ')');
+  assert.match(h.elements.get('forecastSummary').textContent, /Sin pronóstico/);
+  const forecast = {issued_at: 16, horizon: 16, branches: 8, dispersion: 0.031, expected_burning_cells: 42.5, believed_burning_cells: 12, consumed: true, valid: true,
+    burn_probability: [[40, 20, 0.75]], districts: {farm: {p_fire_within_8: 0.75, p_blocked_or_burnt: 0, expected_distance: 6.2, status_now: 'unwarned', outcomes: {unwarned: 6, evacuating: 2}}}};
+  const divergence = {tick: 24, distance: 0.21, threshold: 0.062, divergent: true, what_changed: ['wind changed from [0, -1] to [-3, 0]', '<b>farm</b>: fire within 8 cells']};
+  const surprises = [{tick: 20, distance: 0.01, threshold: 0.062, divergent: false}, divergence];
+  h.run('render(' + JSON.stringify(frame({tick: 24, called: true, forecast, divergence, surprises})) + ')');
+  assert.match(h.elements.get('forecastSummary').textContent, /t\+16 · 8 ramas · dispersión 0.031/); assert.match(h.elements.get('forecastSummary').textContent, /invalidado/);
+  assert.match(tbody.innerHTML, /threat-high/); assert.match(tbody.innerHTML, /75%/); assert.match(tbody.innerHTML, /sin aviso \(6\/8\)/);
+  assert.match(h.elements.get('divergence').innerHTML, /0.21 > umbral 0.062/); assert.match(h.elements.get('divergence').innerHTML, /&lt;b&gt;farm&lt;\/b&gt;/);
+  assert.match(h.elements.get('surprises').innerHTML, /check-held/); assert.match(h.elements.get('surprises').innerHTML, /check-broke/);
+  h.run('render(' + JSON.stringify(frame({tick: 24, replay: true, forecast, divergence, surprises})) + ')');
+  assert.match(h.elements.get('forecastSummary').textContent, /Sin pronóstico/); assert.equal(tbody.innerHTML, ''); assert.equal(h.elements.get('divergence').innerHTML, '');
+});
+
 test('unknown status and radio-source names do not read inherited dictionary properties', async () => {
   const h = await harness();
   assert.equal(h.run("statusText('constructor')"), 'constructor');

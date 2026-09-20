@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS evaluations(decision_id INTEGER PRIMARY KEY, result_j
 CREATE TABLE IF NOT EXISTS reflections(decision_id INTEGER PRIMARY KEY, run_id TEXT, text TEXT, diagnosis_json TEXT, created_at REAL);
 CREATE TABLE IF NOT EXISTS lessons(id INTEGER PRIMARY KEY, rule TEXT, norm TEXT UNIQUE, source_decision_id INTEGER, created_at REAL, active INTEGER DEFAULT 1);
 CREATE TABLE IF NOT EXISTS patches(id INTEGER PRIMARY KEY, decision_id INTEGER, version_id TEXT, report_path TEXT, created_at REAL);
+CREATE TABLE IF NOT EXISTS forecasts(decision_id INTEGER, kind TEXT, issued_at INTEGER, forecast_json TEXT, PRIMARY KEY(decision_id, kind));
+CREATE TABLE IF NOT EXISTS surprises(id INTEGER PRIMARY KEY, decision_id INTEGER, tick INTEGER, distance REAL, threshold REAL, divergent INTEGER, surprise_json TEXT);
 """
 
 
@@ -165,3 +167,26 @@ class BlackBox:
         with self.lock:
             rows = self.db.execute('SELECT * FROM patches ORDER BY id DESC').fetchall()
         return [dict(r) for r in rows]
+
+    def save_forecast(self, decision_id, kind, result):
+        """``kind`` is 'before' (world as seen, current orders) or 'after' (with the applied decision)."""
+        with self.lock:
+            self.db.execute('INSERT OR REPLACE INTO forecasts VALUES(?,?,?,?)', (decision_id, kind, result.get('issued_at'), json.dumps(result)))
+            self.db.commit()
+
+    def forecast(self, decision_id, kind='after'):
+        with self.lock:
+            row = self.db.execute('SELECT forecast_json FROM forecasts WHERE decision_id=? AND kind=?', (decision_id, kind)).fetchone()
+        return json.loads(row['forecast_json']) if row else None
+
+    def save_surprise(self, decision_id, result):
+        with self.lock:
+            self.db.execute('INSERT INTO surprises(decision_id,tick,distance,threshold,divergent,surprise_json) VALUES(?,?,?,?,?,?)',
+                            (decision_id, result['tick'], result['distance'], result['threshold'], int(result['divergent']), json.dumps(result)))
+            self.db.commit()
+
+    def surprises(self, incident_id):
+        with self.lock:
+            rows = self.db.execute('SELECT s.decision_id,s.tick,s.distance,s.threshold,s.divergent,s.surprise_json FROM surprises s '
+                                   'JOIN decisions d ON d.id=s.decision_id WHERE d.incident_id=? ORDER BY s.id', (incident_id,)).fetchall()
+        return [dict(r, surprise=json.loads(r['surprise_json'])) for r in rows]

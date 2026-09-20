@@ -80,6 +80,18 @@ The reflection is a separate HappyRobot workflow that reads the telemetry, the o
 
 Reference case: run `58a5e3dc` (development v25) had the Scout Agent call `report_scout_plan` twelve times over four minutes because the tool result was empty and it read that as failure. From the recorded telemetry the harvester flags the loop, the oracle grades it as an execution gap, and the live post-mortem run `90242a22` named the empty tool result as root cause with a rule to treat an empty result as success (`tests/test_reference_case.py`, fixtures under `tests/fixtures/`). The oracle's cost function is a demo heuristic (exposed people, unwarned downwind, burning cells, invalid or looping runs), not an operational standard. Design notes: `docs/superpowers/specs/2026-09-20-self-healing-blackbox-oracle-reflection-design.md`.
 
+## Possible worlds: forecast before acting, replan when reality disagrees
+
+```text
+decision requested ──► belief world (sensor memory, delayed satellite, smoke report; hidden fire excluded)
+                        │  8 reseeded rollouts × 16 ticks in a process pool (~1 s) → world_state.possible_worlds
+ decision applied  ──► same ensemble for the plan in force → BlackBox forecasts table, dashboard fan overlay
+ every 4 ticks     ──► surprise = distance(observed belief, forecast medoid) restricted to cells seen since
+                        │  distance > max(0.05, 2×dispersion) capped at 0.30 → forecast_divergence event → agent replans
+```
+
+`simulator/worlds.py` forks the world the agents can see (never the ground truth), runs it under the current orders with different random seeds, and summarises the ensemble: dispersion, expected burning cells, per-cell burn probability, and for each district the probability of fire within 8 cells and the distribution of population outcomes. The same world distance (tolerant fire-front and burned masks, population status ranks, district threat, fleet displacement) that measures ensemble spread also measures how far the observed world has drifted from the forecast; when the drift exceeds what the ensemble itself explains, the controller logs why (`what_changed`: wind, an unexpected front, a district newly threatened) and raises `forecast_divergence` so the next HappyRobot decision names the invalidated assumption. Hidden fire the sensors have not reached can never trigger it. Forecasts and surprise checks are stored next to the decision in the black box and appear in the **Futuros** panel and the post-mortem view. Frequencies are model-consistent, not an operational fire forecast.
+
 ## Verify
 
 ```sh
@@ -88,7 +100,7 @@ node --test tests/test_dashboard.cjs
 node --check simulator/static/app.js
 ```
 
-Tests cover spread timing, wind, containment, local knowledge, satellite latency, evacuation, blocked routes, stale/invalid commands, immutable replay, MCP parsing, the black box, telemetry signals, the oracle, the reflection client, the healing tiers and the reference loop case. Live HappyRobot calls are mocked in tests. Restart the server after Python changes; no hot reload.
+Tests cover spread timing, wind, containment, local knowledge, satellite latency, evacuation, blocked routes, stale/invalid commands, immutable replay, MCP parsing, the black box, telemetry signals, the oracle, the reflection client, the healing tiers, the reference loop case, the belief-world ensemble and forecast divergence. Live HappyRobot calls are mocked in tests. Restart the server after Python changes; no hot reload.
 
 [Recorded validation cases](docs/demo-validation.md) include the real HappyRobot run IDs and physical outcomes.
 
