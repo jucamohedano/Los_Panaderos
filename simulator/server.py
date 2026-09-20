@@ -4,6 +4,7 @@ import atexit
 import copy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import threading
 import time
@@ -598,7 +599,7 @@ def serve(port=8765):
 
     server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
     print(f'Los Panaderos: http://127.0.0.1:{port}', flush=True)
-    print('HappyRobot development workflow; farmer call is a simulated transcript.', flush=True)
+    print(f"HappyRobot {os.environ.get('HAPPYROBOT_ENVIRONMENT', 'development')} workflow; farmer call is a simulated transcript.", flush=True)
     print(f'Jev reflex: {reflex.mode()}', flush=True)
     try:
         server.serve_forever()
