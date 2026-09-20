@@ -41,11 +41,18 @@ Both are inside `world_state` (JSON string) and optional; old versions ignore th
 "lessons_learned": ["With a credible smoke report and unwarned residents downwind, warn before confirming."]
 ```
 
-Guarantees: nothing from the hidden truth is in any of these; cases never come
+Guarantees: current hidden truth is not used to build forecasts or retrieval signatures.
+Historical cases include explicitly retrospective outcomes and oracle preferences;
+they are not fresh observations about this incident. Cases never come
 from the current incident; at most 3 cases at distance <= 0.25; `did` and
 `oracle_preferred` are short strings, never raw orders.
 
-## Prompt section to add (forked version of Los Panaderos, Central agent)
+## Prompt section to add (draft dispatch version; tactical subset in fleet agents)
+
+Read-only v29 inspection shows Los Panaderos now follows a mission supplied by
+dispatch. Put strategic prioritisation in dispatch and pass its intent into the
+fleet workflow. The fork still calls the fleet workflow directly; that integration
+must be aligned before a live test. See [proposal audit](proposal-audit.md).
 
 > **Experience.** `similar_cases` are past decisions in situations close to this
 > one, graded with hindsight. They are evidence, not orders: current
@@ -57,8 +64,9 @@ from the current incident; at most 3 cases at distance <= 0.25; `did` and
 >
 > **Futures.** `possible_worlds` gives, per district, the frequency with which
 > the fire came within reach across reseeded rollouts of what you currently
-> know. Act on the district with the highest `p_fire_within_8` or `p_blocked_or_burnt` and unwarned people
-> before containing. If `forecast_divergence` is present, the previous plan
+> know. Weigh threatened people, warning travel time, current observations,
+> uncertainty and available resources when prioritising districts; probability
+> alone does not determine urgency. If `forecast_divergence` is present, the previous plan
 > assumed something that is now false (`what_changed`): revise the affected
 > assignments first and name the invalidated assumption.
 
@@ -71,9 +79,9 @@ backward compatible):
 "invalidated_assumption": "wind stayed northerly"   // when forecast_divergence was present
 ```
 
-The simulator already stores the whole decision; these fields let the
-post-mortem and the Aprendizaje panel show *which* experience changed the
-decision, which is the demo claim ("it learns").
+These are proposed fields. The live response parser and dashboard do not yet
+preserve/display this attribution; the current interface reports only what was
+sent. Wire and validate the full output path before claiming confirmed use.
 
 ## Optional workflow: candidate plans, evaluated by the simulator
 
@@ -97,14 +105,13 @@ Contract for `evaluate_plans` (HTTP tool node, POST):
 
 Plans must be orders the simulator can execute (same schema as the result
 node), never prose hypotheses like "wind shifts east": the physics can evaluate
-a plan, it cannot evaluate a sentence. Each plan set costs about one second.
+a plan, it cannot evaluate a sentence. Measure latency for the selected fleet,
+horizon and branch count before setting a first-response budget.
 
-## Shared experience store
+## Experience store: SQLite
 
-The black box (SQLite, `.runtime/blackbox.sqlite`) is the replay buffer and is
-per machine. A HappyRobot Twin table (`cases`: signature JSON, did,
-oracle_preferred, regret, gap_type, lesson) plus a DB tool node would let agents
-in the workspace query experience directly; on hackspainteam9 the Twin database
-currently answers `404 Twin database not available`, so this stays a follow-up
-until it is enabled. The retrieval logic (`experience.retrieve`) is
-store-agnostic: it only needs rows with a signature and an evaluation.
+The black box (`.runtime/blackbox.sqlite`) is the persistent local replay buffer.
+The simulator queries it and sends bounded case summaries to HappyRobot; the
+agents need no database credentials or direct access. SQLite is sufficient for
+this deployment. Back up this file if retaining experience across machines.
+No Twin database is planned.
