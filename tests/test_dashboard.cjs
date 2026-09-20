@@ -36,8 +36,122 @@ class Element {
   replaceChildren(...children) {this.children = children;}
   append(...children) {this.children.push(...children);}
   click() {if (!this.disabled) return this.onclick?.({currentTarget: this, target: this});}
+  showModal() {this.open = true;}
   getBoundingClientRect() {return {left: 0, top: 0, width: 800, height: 560};}
 }
+
+test('adaptive summary precedes maps and separates sent experience from confirmed use', async () => {
+  const h = await harness();
+  assert.ok(html.indexOf('id="adaptStrip"') < html.indexOf('<main class="maps">'));
+  h.put('s', frame({forecast: {branches: 8, districts: {farm: {p_fire_within_8: .75}}},
+    experience: {cases: [{decision_id: 2}], lessons: [{id: 1}]}}));
+  h.run('render(s)');
+  assert.match(h.elements.get('adFutureMain').textContent, /8/);
+  assert.match(h.elements.get('adFutureSub').textContent, /75%/);
+  assert.match(h.elements.get('adMemoryMain').textContent, /1 caso enviado/);
+  assert.match(h.elements.get('adMemorySub').textContent, /uso no confirmado/);
+  assert.match(h.elements.get('adChangeMain').textContent, /Sin comprobar/);
+  h.run("lang='en'; render(s)");
+  assert.match(h.elements.get('adMemorySub').textContent, /use unconfirmed/);
+});
+
+test('adaptation distinguishes divergence, checked state, reset and replay', async () => {
+  const h = await harness();
+  h.put('s', frame({divergence: {what_changed: ['<wind changed>']}, experience: {cases: [{}], lessons: []}}));
+  h.run('render(s)');
+  assert.ok(h.elements.get('adaptChange').classList.contains('is-diverged'));
+  assert.equal(h.elements.get('adChangeSub').textContent, '<wind changed>');
+  h.put('s', frame({surprises: [{tick: 4, divergent: false}]})); h.run('render(s)');
+  assert.match(h.elements.get('adChangeMain').textContent, /Dentro de lo previsto/);
+  assert.equal(h.elements.get('adaptChange').classList.contains('is-diverged'), false);
+  h.put('s', frame()); h.run('render(s)');
+  assert.equal(h.elements.get('adMemoryMain').textContent, '—');
+  h.put('s', frame({replay: true, experience: {cases: [{}]}, divergence: {what_changed: ['stale']}})); h.run('render(s)');
+  assert.equal(h.elements.get('adMemoryMain').textContent, '—');
+  assert.match(h.elements.get('adChangeSub').textContent, /Reproducción/);
+});
+
+test('Jev shadow card appears only when the reflex runs, names Central as decider and never claims to act', async () => {
+  const h = await harness();
+  h.put('s', frame()); h.run('render(s)');
+  assert.equal(h.elements.get('adaptReflex').hidden, true);
+  assert.equal(h.elements.get('adaptCards').classList.contains('has-reflex'), false);
+  h.put('s', frame({reflex: {mode: 'shadow'}})); h.run('render(s)');
+  assert.equal(h.elements.get('adaptReflex').hidden, false);
+  assert.match(h.elements.get('adReflexSub').textContent, /nunca actúa/);
+  h.put('s', frame({reflex: {mode: 'shadow', route: 'central', agreement: .5, latency_ms: 244, grade: {vs_central: 12.5}, orders: ['<scout-1: hold>']}}));
+  h.run('render(s)');
+  assert.equal(h.elements.get('adReflexMain').textContent, 'Central (HappyRobot)');
+  assert.match(h.elements.get('adReflexSub').textContent, /^Jev \(sombra\) · coincide 50% · 244 ms · escalaría · coste \+12\.5 vs Central$/);
+  assert.equal(h.elements.get('adaptReflex').title, '<scout-1: hold>');
+  assert.ok(h.elements.get('adaptCards').classList.contains('has-reflex'));
+  h.put('s', frame({replay: true, reflex: {mode: 'shadow', route: 'reflex'}})); h.run('render(s)');
+  assert.equal(h.elements.get('adaptReflex').hidden, true);
+  h.put('s', frame({reflex: {mode: 'shadow'}})); h.run('render(s)');
+  const tbody = new Element('tbody');
+  h.elements.get('postmortem').querySelector = selector => selector === 'tbody' ? tbody : null;
+  h.handler = request => request.url === '/api/postmortem' ? response({incident_id: 'i', lessons: [], patches: [], decisions: [
+    {id: 1, tick: 5, status: 'applied', decision: {}, result: {regret: 0, gap_type: 'none'}, reflex: {route: 'reflex', agreement: 1, latency_ms: 180, grade: {regret: 0}, orders: ['<x>']}},
+    {id: 2, tick: 9, status: 'applied', decision: {}, result: null, reflex: null}]}) : response(h.server);
+  await h.run('renderPostmortem()');
+  assert.match(tbody.innerHTML, /actuaría · 100% igual · 180 ms · regret 0/);
+  assert.match(tbody.innerHTML, /title="&lt;x&gt;"/);
+  assert.match(tbody.innerHTML, /<td>9<\/td>.*<td><\/td><td>—<\/td><\/tr>/);
+  assert.equal((tbody.innerHTML.match(/<td>—<\/td><\/tr>/g) || []).length, 1);
+});
+
+test('adaptive evidence opens in a dialog without page scrolling and hides live panels in replay', async () => {
+  const h = await harness();
+  h.elements.get('adaptForecast').click();
+  assert.equal(h.elements.get('insightDialog').open, true);
+  assert.equal(h.elements.get('forecastPanel').hidden, false);
+  assert.equal(h.elements.get('learningPanel').hidden, true);
+  h.put('s', frame({replay: true})); h.run('render(s)');
+  assert.equal(h.elements.get('forecastPanel').hidden, true);
+  assert.equal(h.elements.get('insightReplay').hidden, false);
+});
+
+test('a completed replan never relabels its divergent checkpoint as a passed check', async () => {
+  const h = await harness();
+  h.put('s', frame({forecast: {issued_at: 24, branches: 8},
+    surprises: [{tick: 24, divergent: true}], divergence: null}));
+  h.run('render(s)');
+  assert.equal(h.elements.get('adChangeMain').textContent, 'Nuevo plan sin comprobar');
+  assert.match(h.elements.get('adChangeSub').textContent, /anterior se desvió en t=24/);
+  h.run('s.surprises.push({tick:28,divergent:false}); render(s)');
+  assert.equal(h.elements.get('adChangeMain').textContent, 'Dentro de lo previsto');
+  h.run('s.forecast.issued_at=28; render(s)');
+  assert.equal(h.elements.get('adChangeMain').textContent, 'Nuevo plan sin comprobar');
+});
+
+test('regret summary is descriptive, refreshes with panels closed and does not retain failed data', async () => {
+  const h = await harness();
+  h.handler = () => response({episodes: [{graded: 1, mean_regret: 100}, {graded: 1, mean_regret: 20}], lessons: []});
+  await h.run('refreshLearning()');
+  assert.equal(h.elements.get('learningPanel').open, false);
+  assert.equal(h.elements.get('adLearnMain').textContent, '100 → 20');
+  assert.match(h.elements.get('adaptLearn').title, /no demuestra aprendizaje/);
+  assert.match(h.elements.get('adLearnChart').innerHTML, /polyline/);
+  h.handler = () => {throw Error('offline');};
+  await h.run('renderLearning()');
+  assert.equal(h.elements.get('adLearnMain').textContent, '—');
+  assert.match(h.elements.get('adLearnSub').textContent, /no disponible/);
+});
+
+test('late learning responses cannot overwrite a newer response or replay', async () => {
+  const h = await harness(), gate = deferred();
+  h.handler = () => gate.promise;
+  const slow = h.run('renderLearning()');
+  h.handler = () => response({episodes: [{graded: 1, mean_regret: 10}]});
+  await h.run('renderLearning()');
+  gate.resolve(response({episodes: [{graded: 1, mean_regret: 999}]})); await slow;
+  assert.equal(h.elements.get('adLearnMain').textContent, '10 → 10');
+  const replayGate = deferred(); h.handler = () => replayGate.promise;
+  const late = h.run('renderLearning()');
+  h.put('s', frame({replay: true})); h.run('render(s)');
+  replayGate.resolve(response({episodes: [{graded: 1, mean_regret: 0}]})); await late;
+  assert.equal(h.elements.get('adLearnMain').textContent, '—');
+});
 
 async function harness() {
   const elements = new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(match => [match[1], new Element(match[1])]));
@@ -324,6 +438,45 @@ test('post-mortem panel renders oracle grades, gaps, reflections and lessons', a
   assert.match(h.elements.get('patches').innerHTML, /v2/);
 });
 
+test('futures panel renders the forecast, district threat, checks and divergence; replay hides it', async () => {
+  const h = await harness();
+  assert.match(html, /id="forecastPanel"/); assert.match(html, /id="forecastDistricts"/);
+  const tbody = new Element('tbody');
+  h.elements.get('forecastDistricts').querySelector = selector => selector === 'tbody' ? tbody : null;
+  h.run('render(' + JSON.stringify(frame()) + ')');
+  assert.match(h.elements.get('forecastSummary').textContent, /Sin pronóstico/);
+  const forecast = {issued_at: 16, horizon: 16, branches: 8, dispersion: 0.031, expected_burning_cells: 42.5, believed_burning_cells: 12, consumed: true, valid: true,
+    burn_probability: [[40, 20, 0.75]], districts: {farm: {p_fire_within_8: 0.75, p_blocked_or_burnt: 0, expected_distance: 6.2, status_now: 'unwarned', outcomes: {unwarned: 6, evacuating: 2}}}};
+  const divergence = {tick: 24, distance: 0.21, threshold: 0.062, divergent: true, what_changed: ['wind changed from [0, -1] to [-3, 0]', '<b>farm</b>: fire within 8 cells']};
+  const surprises = [{tick: 20, distance: 0.01, threshold: 0.062, divergent: false}, divergence];
+  h.run('render(' + JSON.stringify(frame({tick: 24, called: true, forecast, divergence, surprises})) + ')');
+  assert.match(h.elements.get('forecastSummary').textContent, /t\+16 · 8 ramas · dispersión 0.031/); assert.match(h.elements.get('forecastSummary').textContent, /invalidado/);
+  assert.match(tbody.innerHTML, /threat-high/); assert.match(tbody.innerHTML, /75%/); assert.match(tbody.innerHTML, /sin aviso \(6\/8\)/);
+  assert.match(h.elements.get('divergence').innerHTML, /0.21 > umbral 0.062/); assert.match(h.elements.get('divergence').innerHTML, /&lt;b&gt;farm&lt;\/b&gt;/);
+  assert.match(h.elements.get('surprises').innerHTML, /check-held/); assert.match(h.elements.get('surprises').innerHTML, /check-broke/);
+  const premise = {tick: 22, distance: null, threshold: 0.062, divergent: true, premise_broken: true, what_changed: ['wind changed from [1, 0] to [0, 1]: every branch assumed the old wind']};
+  h.run('render(' + JSON.stringify(frame({tick: 22, called: true, forecast, divergence: premise, surprises: [premise]})) + ')');
+  assert.match(h.elements.get('divergence').innerHTML, /Premisa rota en t=22: el viento cambió/); assert.doesNotMatch(h.elements.get('divergence').innerHTML, /null/);
+  assert.match(h.elements.get('surprises').innerHTML, /check-broke">t22: viento DIVERGE/);
+  h.run('render(' + JSON.stringify(frame({tick: 24, replay: true, forecast, divergence, surprises})) + ')');
+  assert.match(h.elements.get('forecastSummary').textContent, /Sin pronóstico/); assert.equal(tbody.innerHTML, ''); assert.equal(h.elements.get('divergence').innerHTML, '');
+});
+
+test('brief provenance names the deterministic SQLite source when no curator ran', async () => {
+  const h = await harness();
+  const experience = {brief: {text: 'x'.repeat(40), cases: [], lessons: []}, cases: []};
+  const learning = extra => JSON.stringify({episodes: [], lessons: [], experience: {...experience, ...extra}});
+  h.run('renderLearningData(' + learning({}) + ')');
+  assert.equal(h.elements.get('briefSent').hidden, false);
+  assert.match(h.elements.get('briefMeta').textContent, /^40 caracteres · 0 casos · 0 reglas · evidencia, no órdenes · resumen determinista \(SQLite, sin curador\)$/);
+  h.run('renderLearningData(' + learning({curator: {agent_used: true, confidence: 0.8}}) + ')');
+  assert.match(h.elements.get('briefMeta').textContent, /curado por HappyRobot \(confianza 0\.80\)$/);
+  h.run('renderLearningData(' + learning({curator: {agent_used: false}}) + ')');
+  assert.match(h.elements.get('briefMeta').textContent, /dejó el resumen determinista$/);
+  h.run("lang='en'; renderLearningData(" + learning({}) + ')');
+  assert.match(h.elements.get('briefMeta').textContent, /deterministic brief \(SQLite, no curator\)$/);
+});
+
 test('unknown status and radio-source names do not read inherited dictionary properties', async () => {
   const h = await harness();
   assert.equal(h.run("statusText('constructor')"), 'constructor');
@@ -331,4 +484,92 @@ test('unknown status and radio-source names do not read inherited dictionary pro
   h.put('input', frame({history: [{tick: 0, source: 'constructor', message: 'literal'}]}));
   assert.doesNotThrow(() => h.run('render(input)'));
   assert.equal(h.elements.get('trail').children[0].children[1].textContent, 'CONSTRUCTOR');
+});
+
+test('learning panel renders the regret curve, the experience sent and the lesson ledger; retire posts an action', async () => {
+  const h = await harness();
+  assert.match(html, /id="learningPanel"/); assert.match(html, /id="learningEpisodes"/);
+  const tbody = new Element('tbody');
+  h.elements.get('learningEpisodes').querySelector = selector => selector === 'tbody' ? tbody : null;
+  const learning = {
+    episodes: [{incident_id: 'aaaaaaaa-1', decisions: 3, graded: 3, mean_regret: 100, judgement_gaps: 0, execution_gaps: 0, surprise_checks: 2, divergences: 1, cases_available: 0, lessons_shown: 0},
+      {incident_id: 'bbbbbbbb-2', decisions: 3, graded: 3, mean_regret: 0, judgement_gaps: 0, execution_gaps: 0, surprise_checks: 3, divergences: 0, cases_available: 3, lessons_shown: 1},
+      {incident_id: 'cccccccc-3', decisions: 1, graded: 0, mean_regret: null, judgement_gaps: 0, execution_gaps: 0, surprise_checks: 0, divergences: 0, cases_available: 6, lessons_shown: 1}],
+    experience: {decision_id: 7, cases: [{decision_id: 1, similarity_distance: 0.08, tick: 2, event_type: 'farmer_call', regret: 100, gap_type: 'none', did: ['drone-1: hold'], oracle_preferred: ['scout-1: evacuate_farm farm'], lesson: 'Warn <b>farm</b> first'}], lessons: []},
+    lessons: [{id: 1, rule: 'Warn the downwind farm before scouting.', active: 1, uses: 4, regret_with: 0, regret_without: 100},
+      {id: 2, rule: 'Old rule', active: 0, uses: 5, regret_with: 120, regret_without: 10, retired_reason: 'regret with lesson 120 vs without 10 over 5 decisions'}]};
+  h.handler = request => request.url === '/api/learning' ? response(learning) : response(h.server);
+  await h.run('renderLearning()');
+  assert.match(h.elements.get('learningCurve').innerHTML, /primer episodio 100 → último 0/); assert.match(h.elements.get('learningCurve').innerHTML, /trend-down/); assert.match(h.elements.get('learningCurve').innerHTML, /<svg/);
+  assert.equal((tbody.innerHTML.match(/<tr/g) || []).length, 2); assert.match(tbody.innerHTML, /aaaaaaaa/); assert.doesNotMatch(tbody.innerHTML, /cccccccc/);
+  assert.match(h.elements.get('experienceUsed').innerHTML, /d=0.08 · t=2 · farmer_call · regret 100/); assert.match(h.elements.get('experienceUsed').innerHTML, /evacuate_farm/); assert.match(h.elements.get('experienceUsed').innerHTML, /&lt;b&gt;farm&lt;\/b&gt;/);
+  assert.match(h.elements.get('lessonLedger').innerHTML, /lesson-retired/); assert.match(h.elements.get('lessonLedger').innerHTML, /regret con 0 \/ sin 100/); assert.match(h.elements.get('lessonLedger').innerHTML, /data-lesson="1" data-active="0"/);
+  h.handler = request => request.url === '/api/learning' ? response(learning) : response(h.server);
+  h.elements.get('lessonLedger').onclick({target: {dataset: {lesson: '2', active: '1'}}});
+  await flush();
+  const action = h.requests.find(request => request.body?.action === 'lesson');
+  assert.deepEqual(action.body, {action: 'lesson', id: 2, active: true});
+  h.handler = request => request.url === '/api/learning' ? response({episodes: [], lessons: [], experience: null}) : response(h.server);
+  await h.run('renderLearning()');
+  assert.match(h.elements.get('learningCurve').textContent, /Sin episodios/); assert.equal(tbody.innerHTML, ''); assert.equal(h.elements.get('experienceUsed').innerHTML, '');
+});
+
+test('experience and results cards choose distinct views and keyboard buttons expose selection', async () => {
+  const h = await harness();
+  assert.equal(h.run('I18N.es.adapt'), 'Adaptación');
+  assert.equal(h.run('I18N.en.adapt'), 'Adaptation');
+  h.elements.get('adaptMemory').click();
+  assert.equal(h.elements.get('learningExperience').hidden, false);
+  assert.equal(h.elements.get('learningResults').hidden, true);
+  h.elements.get('showResults').click();
+  assert.equal(h.elements.get('learningExperience').hidden, true);
+  assert.equal(h.elements.get('showResults').getAttribute('aria-pressed'), 'true');
+  h.elements.get('adaptLearn').click();
+  assert.equal(h.elements.get('learningResults').hidden, false);
+  h.elements.get('showExperience').click();
+  assert.equal(h.elements.get('showResults').getAttribute('aria-pressed'), 'false');
+});
+
+test('case labels expose fleet differences safely and unchanged polling preserves rendered nodes', async () => {
+  const h = await harness(), element = h.elements.get('experienceUsed');
+  let markup = '', writes = 0;
+  Object.defineProperty(element, 'innerHTML', {get: () => markup, set: value => {markup = value; writes++;}});
+  const learning = {episodes: [], lessons: [], experience: {cases: [{decision_id: 2, regret: 10,
+    matching_labels: ['wind:north', '<img src=x onerror=alert(1)>'],
+    differing_labels: {current_only: ['fleet:scouts:1'], case_only: ['fleet:scouts:2']},
+    did: ['scout-1: hold'], oracle_preferred: ['scout-1: patrol']}]}};
+  h.handler = () => response(learning);
+  await h.run('renderLearning()'); await h.run('renderLearning()');
+  assert.equal(writes, 1);
+  assert.match(markup, /1 explorador/); assert.match(markup, /2 exploradores/);
+  assert.match(markup, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.doesNotMatch(markup, /<img/);
+  h.run("lang='en'; applyLang()");
+  assert.match(markup, /1 scout</); assert.match(markup, /2 scouts</);
+  assert.match(markup, /Wind toward north/);
+  assert.equal(writes, 2);
+  h.handler = () => {throw Error('offline');};
+  await h.run('renderLearning()');
+  assert.equal(markup, '');
+  assert.equal(h.elements.get('learningStatus').hidden, false);
+  h.handler = () => response(learning);
+  await h.run('renderLearning()');
+  assert.match(markup, /Case #2/);
+  assert.equal(h.elements.get('learningStatus').hidden, true);
+});
+
+test('a delayed learning response uses current language and renders accessible finite results only', async () => {
+  const h = await harness(), gate = deferred();
+  h.handler = () => gate.promise;
+  const pending = h.run('renderLearning()');
+  h.run("lang='en'; applyLang()");
+  gate.resolve(response({episodes: [{graded: 1, mean_regret: 0}, {graded: 1, mean_regret: null}], lessons: [],
+    experience: {cases: [{decision_id: 9, regret: 0, did: ['scout-1: hold']}]}}));
+  await pending;
+  assert.match(h.elements.get('experienceUsed').innerHTML, /This record has no context labels/);
+  assert.match(h.elements.get('experienceUsed').innerHTML, /No better alternative recorded/);
+  const chart = h.elements.get('learningCurve').innerHTML;
+  assert.match(chart, /role="img" aria-label="Mean cost gap: 0/);
+  assert.doesNotMatch(chart, /NaN|null/);
+  assert.match(chart, /Evaluated decisions/);
 });

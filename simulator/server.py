@@ -1,6 +1,7 @@
 """Run with python3 -m simulator.server; open http://127.0.0.1:8765."""
 import argparse
 import atexit
+import copy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
@@ -14,6 +15,7 @@ from .blackbox import BlackBox
 from .engine import Simulation
 from .geo import PLACE
 from .happyrobot import HappyRobot, EDITOR
+from . import curator, experience, reflex, worlds
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / '.runtime'
@@ -65,6 +67,17 @@ class Controller:
         self.analyst = Analyst(self.box, self.robot, self._set_lessons, self._log)
         self.last_decision_id = None
         self.sim.lessons = self.box.active_lessons(5)
+        # Possible worlds: the forecast for the plan in force, and how far observation has drifted from it.
+        self.forecast = None
+        self.forecast_consumed = False
+        self.forecast_thread = None
+        self.forecast_before = None
+        self.surprises = []
+        # Experience replay: the situation signature and retrieved cases/lessons shown to the last decision.
+        self.experience = None
+        self.experience_before = None
+        # Jev reflex in shadow mode: a typed fast verdict recorded beside each decision, never applied.
+        self.reflex = None
         threading.Thread(target=self._clock, daemon=True).start()
 
     def _set_lessons(self, lessons):
@@ -93,15 +106,81 @@ class Controller:
             self.box.finish_outcome(self.last_decision_id, self.sim)
             self.last_decision_id = None
 
+    def _forecast_after(self, decision_id, world):
+        """Ensemble for the plan just applied, computed off the clock; becomes the divergence baseline."""
+        def run():
+            try:
+                result = worlds.forecast(world)
+                self.box.save_forecast(decision_id, 'after', result)
+                with self.lock:
+                    if self.last_decision_id != decision_id or self.sim.incident_id != world.incident_id:
+                        return
+                    self.forecast = result
+                    self.forecast_consumed = False
+                    plan = result['plans'].get('current_orders', {})
+                    threatened = [k for k, v in (plan.get('districts') or {}).items() if v['p_fire_within_8'] >= .5]
+                    self.sim.log('forecast', f"Possible worlds t+{result['horizon']}: {plan.get('branches', 0)} branches, dispersion {plan.get('dispersion')}, "
+                                 f"~{plan.get('expected_burning_cells')} burning cells expected"+(f"; fire likely within {worlds.THREAT_CELLS} cells of {', '.join(threatened)}" if threatened else ''))
+            except Exception as exc:
+                self._log('forecast', f'Forecast failed: {str(exc)[:200]}')
+        thread = threading.Thread(target=run, daemon=True)
+        self.forecast_thread = thread
+        thread.start()
+
+    def _check_forecast(self):
+        """At each forecast checkpoint, compare what is observed with what was forecast; raise forecast_divergence once."""
+        forecast = self.forecast
+        if not forecast or self.forecast_consumed or self.sim.phase != 'active':
+            return
+        elapsed = self.sim.tick-forecast['issued_at']
+        if elapsed <= 0 or elapsed > forecast['horizon'] or elapsed % worlds.CHECKPOINT_EVERY:
+            return
+        result = worlds.surprise(forecast, self.sim)
+        if result is None or not self._record_surprise(result):
+            return
+        if self.sim.called and not self.sim.pending_decision_event:
+            self.sim.pending_decision_event = 'forecast_divergence'
+
+    def _record_surprise(self, result):
+        """Keep the check; on divergence invalidate the forecast and name what changed. Returns whether it diverged."""
+        self.surprises.append(result)
+        self.surprises = self.surprises[-40:]
+        if self.last_decision_id is not None:
+            self.box.save_surprise(self.last_decision_id, result)
+        if not result['divergent']:
+            return False
+        self.forecast_consumed = True
+        self.sim.divergence = result
+        measured = f"observed world is {result['distance']} from the forecast (threshold {result['threshold']})" \
+            if result['distance'] is not None else 'forecast premise broken'
+        self.sim.log('forecast', f"Forecast divergence: {measured}. "+('; '.join(result['what_changed'][:3]) or 'no single named cause'))
+        return True
+
+    def _wind_premise(self):
+        """An operator wind change invalidates the standing forecast at once; the forecast_update decision then carries the named reason."""
+        if not self.forecast or self.forecast_consumed or self.sim.phase != 'active':
+            return
+        result = worlds.premise_check(self.forecast, self.sim)
+        if result:
+            self._record_surprise(result)
+
     def postmortem(self):
         with self.lock:
             incident = self.sim.incident_id
         rows = self.box.list_decisions(incident)
         for row in rows:
-            for key in ('decision_json', 'outcome_json', 'signals_json', 'result_json', 'diagnosis_json'):
+            for key in ('decision_json', 'outcome_json', 'signals_json', 'result_json', 'diagnosis_json', 'reflex_json'):
                 raw = row.pop(key, None)
                 row[key[:-5]] = json.loads(raw) if raw else None
-        return dict(incident_id=incident, decisions=rows, lessons=self.box.active_lessons(5), patches=self.box.patches())
+            if row['reflex']:
+                row['reflex'].pop('decision', None)
+        forecasts = {row['id']: self.box.forecast(row['id']) for row in rows}
+        for row in rows:
+            plan = ((forecasts.get(row['id']) or {}).get('plans') or {}).get('current_orders') or {}
+            row['forecast'] = dict(dispersion=plan.get('dispersion'), expected_burning_cells=plan.get('expected_burning_cells'),
+                                   threatened=[k for k, v in (plan.get('districts') or {}).items() if v['p_fire_within_8'] >= .5]) if plan else None
+        return dict(incident_id=incident, decisions=rows, lessons=self.box.active_lessons(5), patches=self.box.patches(),
+                    surprises=self.box.surprises(incident))
 
     def snapshot(self):
         return zlib.compress(json.dumps(self.sim.state()).encode())
@@ -121,6 +200,7 @@ class Controller:
                 if not self.running or self.busy or self.cursor is not None:
                     continue
                 self.sim.step()
+                self._check_forecast()
                 if self.sim.phase != 'active':
                     self.auto = False
                 if self.sim.phase == 'finished':
@@ -140,7 +220,75 @@ class Controller:
                         recording=self.recording,recorded_frames=len(self.recorded_frames),
                         frame_count=len(self.frames),replay=self.cursor is not None,live_tick=self.sim.tick,
                         connected=self.robot.connected, error=self.error, workflow_url=EDITOR,
-                        workflow_calls=self.calls, latency=self.latency, run_evidence=self.run_evidence)
+                        workflow_calls=self.calls, latency=self.latency, run_evidence=self.run_evidence,
+                        forecast=self._forecast_view(), divergence=self.sim.divergence, surprises=self.surprises[-12:],
+                        experience=self.experience, reflex=self._reflex_view())
+
+    def _reflex(self, world, event_type, brief):
+        """Start Jev on the frozen world while HappyRobot deliberates; returns a getter that never raises."""
+        if not reflex.enabled():
+            return None
+        result = {}
+
+        def run():
+            try:
+                result['verdict'] = reflex.decide(world, event_type, brief)
+            except Exception as exc:
+                result['error'] = str(exc)[:200]
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+
+        def get():
+            thread.join(reflex.TIMEOUT+2)
+            if 'error' in result:
+                self._log('reflex', f"Jev shadow skipped: {result['error']}")
+            return result.get('verdict')
+        return get
+
+    def _experience_context(self, world, event_type):
+        """Similar graded past decisions and the lessons relevant to this situation, computed off the lock."""
+        sig = experience.signature(world, event_type)
+        return dict(signature=sig, cases=experience.retrieve(self.box, sig, exclude_incident=world.incident_id),
+                    lessons=experience.relevant_lessons(self.box, sig))
+
+    def _curate(self, payload, context):
+        """Optional HappyRobot curator: judges which precedents apply and fills the mission inputs it is confident about."""
+        if not curator.enabled():
+            return
+        try:
+            curated = curator.curate(self.robot, payload)
+        except Exception as exc:
+            self._log('experience', f'Experience workflow skipped: {str(exc)[:200]}')
+            return
+        for key, value in curated['fields'].items():
+            if not payload.get(key):
+                payload[key] = value
+        context['curator'] = curated
+        self._log('experience', f"Experience workflow {'applied' if curated['agent_used'] else 'deferred to the deterministic brief'} "
+                                f"(confidence {curated['confidence']:.2f}, run {curated['run_id'][:8]})")
+
+    def _reflex_view(self):
+        if not reflex.enabled():
+            return dict(mode='off')
+        if not self.reflex:
+            return dict(mode=reflex.mode())
+        graded = self.box.reflex(self.reflex['decision_id']) or {}
+        return dict({k: self.reflex[k] for k in ('mode', 'route', 'reasons', 'orders', 'confidence', 'escalate', 'threat', 'latency_ms', 'agreement', 'decision_id')},
+                    grade=graded.get('grade'))
+
+    def learning(self):
+        with self.lock:
+            shown = self.experience
+        return dict(episodes=experience.learning_curve(self.box), lessons=self.box.lesson_rows(active_only=False), experience=shown,
+                    reflex=self.box.reflex_summary())
+
+    def _forecast_view(self):
+        if not self.forecast:
+            return None
+        plan = self.forecast['plans'].get('current_orders') or {}
+        return dict(issued_at=self.forecast['issued_at'], horizon=self.forecast['horizon'], branches=plan.get('branches'), dispersion=plan.get('dispersion'),
+                    expected_burning_cells=plan.get('expected_burning_cells'), districts=plan.get('districts'), burn_probability=plan.get('burn_probability', []),
+                    believed_burning_cells=self.forecast.get('believed_burning_cells'), consumed=self.forecast_consumed, valid=plan.get('valid', True))
 
     def request_decision(self, event='local_observation'):
         if self.sim.phase != 'active':
@@ -157,19 +305,71 @@ class Controller:
         self.sim.pending_decision_event = None
         self.busy = True
         self.error = None
-        threading.Thread(target=self._decide, args=(payload,self.sim.tick), daemon=True).start()
+        # A corrective retry sees the same frozen world, so it reuses the forecast already computed for it.
+        world = None if event == 'command_rejected' else copy.deepcopy(self.sim)
+        threading.Thread(target=self._decide, args=(payload,self.sim.tick,world), daemon=True).start()
 
-    def _decide(self, payload, tick):
+    def _decide(self, payload, tick, world=None):
         start = time.monotonic()
         retry = False
+        corrective = payload.get('event_type') == 'command_rejected'
+        before = self.forecast_before if corrective else None
+        context = self.experience_before if corrective else None
         try:
+            # What the believed world does under current orders, so the agent plans against futures, not a snapshot.
+            if world is not None:
+                try:
+                    before = worlds.forecast(world)
+                except Exception as exc:
+                    self._log('forecast', f'Pre-decision forecast skipped: {str(exc)[:200]}')
+                try:
+                    context = self._experience_context(world, payload.get('event_type'))
+                except Exception as exc:
+                    self._log('experience', f'Case retrieval skipped: {str(exc)[:200]}')
+            if before or context:
+                state = json.loads(payload['world_state'])
+                view = worlds.agent_view(before) if before else None
+                if view:
+                    state['possible_worlds'] = view
+                if context:
+                    state['similar_cases'] = context['cases']
+                    state['lessons_learned'] = [l['rule'] for l in context['lessons']]
+                    # Same evidence, compacted; also fills the fleet workflow's mission inputs when no dispatcher did.
+                    brief = experience.brief(context['signature'], context['cases'], context['lessons'], view, state.get('forecast_divergence'))
+                    context['brief'] = brief
+                    state['episode_brief'] = brief
+                payload['world_state'] = json.dumps(state)
+                if context:
+                    self._curate(payload, context)
+                    for key, value in experience.dispatch_fields(brief).items():
+                        if not payload.get(key):
+                            payload[key] = value
+            if context and context['cases']:
+                self._log('experience', f"{len(context['cases'])} similar past decision(s) retrieved (closest {context['cases'][0]['similarity_distance']}, regret {context['cases'][0]['regret']}); "
+                                        f"{len(context['lessons'])} lesson(s) relevant")
+            shadow = self._reflex(world, payload.get('event_type'), context and context.get('brief')) if world is not None else None
             decision, evidence = self.robot.decide(payload)
+            verdict = shadow() if shadow else None
             with self.lock:
                 if self.reset_pending:return
                 self.calls += 1
                 self.latency = round(time.monotonic()-start, 1)
                 self.run_evidence = evidence
                 decision_id = self._record(payload, decision, 'pending')
+                if before:
+                    self.box.save_forecast(decision_id, 'before', before)
+                if context:
+                    self.box.save_case(decision_id, payload['incident_id'], context['signature'])
+                    self.box.record_lesson_uses(decision_id, [l['id'] for l in context['lessons']])
+                    self.experience = dict(context, decision_id=decision_id)
+                if verdict:
+                    agreement = reflex.agreement(verdict['decision'], decision)
+                    self.box.save_reflex(decision_id, verdict, agreement)
+                    self.reflex = dict(verdict, agreement=agreement, decision_id=decision_id)
+                    self._log('reflex', f"Jev shadow ({verdict['latency_ms']} ms): {'; '.join(verdict['orders'])} · confidence {verdict['confidence']:.2f} · "
+                                        f"would route to {verdict['route']}" + (f" ({verdict['reasons'][0]})" if verdict['reasons'] else '') +
+                                        f" · agreement with Central {agreement}")
+                self.sim.divergence = None
                 try:
                     self.sim.apply(decision,payload['event_id'],payload['incident_id'],tick)
                 except ValueError as exc:
@@ -178,6 +378,8 @@ class Controller:
                     raise
                 self.box.set_status(decision_id, 'applied')
                 self._analyse(decision_id, payload)
+                self.forecast = None
+                self._forecast_after(decision_id, copy.deepcopy(self.sim))
                 self.next_decision = self.sim.tick + 16
                 self.record()
         except Exception as exc:
@@ -202,6 +404,8 @@ class Controller:
         finally:
             with self.lock:
                 self.busy = False
+                self.forecast_before = before if retry else None
+                self.experience_before = context if retry else None
                 if self.reset_pending:
                     self.action('reset',{})
                 else:
@@ -259,6 +463,21 @@ class Controller:
                 self.latency = None
                 self.frames = [self.snapshot()]
                 self.next_decision = 0
+                self.forecast = None
+                self.forecast_consumed = False
+                self.forecast_before = None
+                self.surprises = []
+                self.experience = None
+                self.experience_before = None
+                self.reflex = None
+            elif action == 'lesson':
+                lesson_id, active = int(data.get('id')), bool(data.get('active', True))
+                if active:
+                    self.box.restore_lesson(lesson_id)
+                else:
+                    self.box.retire_lesson(lesson_id, 'retired by operator')
+                self.sim.lessons = self.box.active_lessons(5)
+                self.sim.log('operator', f"Lesson {lesson_id} {'restored' if active else 'retired'}.")
             elif action == 'fleet':
                 self.sim.configure_fleet(data.get('count'),**data.get('counts',{}))
                 self.sim.observe()
@@ -285,6 +504,7 @@ class Controller:
             elif action == 'wind':
                 self.sim.set_wind(data.get('direction','east'),data.get('x'),data.get('y'))
                 if self.sim.called:
+                    self._wind_premise()
                     self.request_decision('forecast_update')
             elif action == 'call':
                 self.sim.farmer_call(str(data.get('message',''))[:2000].strip())
@@ -331,6 +551,8 @@ def serve(port=8765):
                 self.reply(200,dict(format='los-panaderos-recording-v1',frames=frames))
             elif path == '/api/state':
                 self.reply(200, controller.state())
+            elif path == '/api/learning':
+                self.reply(200, controller.learning())
             elif path == '/api/postmortem':
                 self.reply(200, controller.postmortem())
             elif path == '/api/config':
@@ -377,6 +599,7 @@ def serve(port=8765):
     server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
     print(f'Los Panaderos: http://127.0.0.1:{port}', flush=True)
     print('HappyRobot development workflow; farmer call is a simulated transcript.', flush=True)
+    print(f'Jev reflex: {reflex.mode()}', flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -391,4 +614,5 @@ def serve(port=8765):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, default=8765)
+    reflex.load_env_key()
     serve(parser.parse_args().port)

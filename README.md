@@ -20,6 +20,8 @@ These describe exposure scenarios, not scripted outcomes. HappyRobot chooses inv
 
 ## 112 dashboard
 
+Start with the [adaptation and experience guide](docs/adaptation-and-learning.md) for a walkthrough of the **Adaptación** strip, case labels, replay, result metrics and the reasons behind the design.
+
 The dark CECOP console keeps two illustrated Brunete maps: ground truth on the left, and current/remembered observations with delayed synthetic satellite detections and district overlays on the right. The maps are not georeferenced. The people board, verbatim radio-order ticket and communications log remain visible around the map workspace; setup and recording tools collapse for the pitch. ES/EN changes interface labels, never agent missions or reasons. Cesium/FIRMS and the Sierra de Gata helpers remain dormant compatibility code, not the live map or simulated fire. The gitignored .env is retained, and the unused /api/config endpoint remains localhost-only.
 
 Use Pause, +1 step, speed selection, and Ask agents for manual control. The timeline supports backward/forward scrubbing and replay playback. **Live** returns to the latest state; press Play to continue. Replay is read-only and never repeats platform calls. Up to 1,500 compressed frames are retained in memory, cleared by Reset/restart. Playback pauses when the operator view confirms no active fire remains and no evacuation group is still moving or blocked; this is not an agent all-clear.
@@ -76,9 +78,50 @@ decision applied ──► BlackBox (SQLite, .runtime/blackbox.sqlite)
 
 Every applied, rejected or failed decision is frozen before the simulator mutates and analysed in a background thread; the clock never waits for it. The oracle re-simulates the same world with hindsight (it knows fire the sensors had not seen) for the actual command and a small set of candidates, and reports regret plus a gap type: `information` (best command needed hidden facts), `judgement` (facts were visible), `execution` (rejected command, tool loop, timeout) or `none`. It never chooses a command for the live incident; it only measures.
 
-The reflection is a separate HappyRobot workflow that reads the telemetry, the oracle verdict and the prompt section, and returns a structured diagnosis. Healing is gated: tier 1 stores the proposed rule as a lesson and sends the five most recent active lessons in `world_state.lessons_learned` of the next payload, and annotates the run in HappyRobot; tier 2 creates a Northstar when the same root cause recurs; tier 3 forks a development version, applies the proposed prompt patch and writes a report in `.runtime/patches/`. Nothing is published automatically; promoting a patch is a human decision. Lessons persist across resets. The dashboard panel **Post-mortem** shows the actual and best command per decision, regret, gap, latency, loop signals, the reflection text and the active lessons.
+The reflection is a separate HappyRobot workflow that reads telemetry, the oracle verdict and the prompt section, and returns a structured diagnosis. Tier 1 gates rules on confidence and gap type, stores contextual lessons and annotates the run; tier 2 creates a Northstar on recurrence; tier 3 forks and patches a version, **automatically publishes it to staging**, runs a replay and writes a report in `.runtime/patches/`. Development/production promotion remains human. An explicit gate before staging publication is still pending; the earlier claim that nothing publishes automatically was incorrect. Lessons persist across resets. **Post-mortem** shows the commands, regret, gap, latency, loop signals and reflection.
 
-Reference case: run `58a5e3dc` (development v25) had the Scout Agent call `report_scout_plan` twelve times over four minutes because the tool result was empty and it read that as failure. From the recorded telemetry the harvester flags the loop, the oracle grades it as an execution gap, and the live post-mortem run `90242a22` named the empty tool result as root cause with a rule to treat an empty result as success (`tests/test_reference_case.py`, fixtures under `tests/fixtures/`). The oracle's cost function is a demo heuristic (exposed people, unwarned downwind, burning cells, invalid or looping runs), not an operational standard. Design notes: `docs/superpowers/specs/2026-09-20-self-healing-blackbox-oracle-reflection-design.md`.
+Reference case: run `58a5e3dc` (development v25) had the Scout Agent call `report_scout_plan` twelve times over four minutes because the tool result was empty and it read that as failure. From the recorded telemetry the harvester flags the loop, the oracle grades it as an execution gap, and the live post-mortem run `90242a22` named the empty tool result as root cause with a rule to treat an empty result as success (`tests/test_reference_case.py`, fixtures under `tests/fixtures/`). The oracle's cost function is a demo heuristic (exposed people, unwarned downwind, burning cells, invalid or looping runs), not an operational standard. Design notes: `docs/superpowers/specs/2026-09-20-self-healing-blackbox-oracle-reflection-design.md`; HappyRobot-side contract for experience, futures and the optional plan-evaluation workflow: `docs/happyrobot-experience-contract.md`.
+
+## Possible worlds: forecast before acting, replan when reality disagrees
+
+```text
+decision requested ──► belief world (sensor memory, delayed satellite, smoke report; hidden fire excluded)
+                        │  8 reseeded rollouts × 16 ticks in a process pool (~1 s) → world_state.possible_worlds
+ decision applied  ──► same ensemble for the plan in force → BlackBox forecasts table, dashboard fan overlay
+ every 4 ticks     ──► surprise = distance(observed belief, forecast medoid) restricted to cells seen since
+                        │  distance > max(0.05, 2×dispersion) capped at 0.30, or wind turned ≥45° / strength ±1
+                        │  → forecast_divergence event → agent replans
+```
+
+`simulator/worlds.py` forks the world the agents can see (never the ground truth), runs it under the current orders with different random seeds, and summarises the ensemble: dispersion, expected burning cells, per-cell burn probability, and for each district the probability of fire within 8 cells and the distribution of population outcomes. The same world distance (tolerant fire-front and burned masks, population status ranks, district threat, fleet displacement) that measures ensemble spread also measures how far the observed world has drifted from the forecast; when the drift exceeds what the ensemble itself explains, the controller logs why (`what_changed`: wind, an unexpected front, a district newly threatened) and raises `forecast_divergence` so the next HappyRobot decision names the invalidated assumption. A visible wind turn of 45° or more (or a strength change of 1) breaks the forecast premise on its own, because every branch was rolled under the old wind, so the replan is requested before the front has moved. Hidden fire the sensors have not reached can never trigger it. Forecasts and surprise checks are stored next to the decision in the black box and appear in the **Futuros** panel and the post-mortem view. Frequencies are model-consistent, not an operational fire forecast.
+
+## Learning from experience: case memory, lesson credit, learning curve
+
+```text
+decision requested ──► situation signature (belief only: wind, believed fire, per-district status/distance/downwind, idle fleet, minutes since alarm)
+                        │  k=3 nearest graded past decisions by signature distance → world_state.similar_cases
+                        │  active lessons ranked by the situation they were learned in → world_state.lessons_learned
+ decision recorded ──► cases table (signature) + lesson_uses (which lessons this decision saw)
+ oracle graded     ──► lesson credit: regret of decisions shown the lesson vs not shown → retire when it hurts
+```
+
+The black box is the replay buffer; the policy is a frozen language model, so experience feeds back *in context* instead of by gradient. `simulator/experience.py` builds a small, interpretable signature of the situation as the agent sees it (hidden fire excluded) weighted toward what matters in the first minutes — who is unwarned and downwind, what is idle, whether the fire is confirmed — and retrieves the closest past decisions that the oracle has already graded. Each case tells the agent what was done, what the oracle preferred, the regret, the outcome and any lesson drawn from it; cases from the current incident are excluded so no decision grades itself, and cases further than `MAX_CASE_DISTANCE` are not shown. Cases are evidence, not orders: current observations and telemetry override them.
+
+Lessons are ranked by contextual similarity, with a confidence ≥0.5 gate at creation. Every decision records which lessons it was shown; `review_lessons` compares exposed/unexposed mean regret and can retire a lesson after at least three uses. These are observational comparisons, not proof of causation; recurrence and relevance-cutoff gates remain pending. The top **Adaptación** strip asks what might happen, whether the plan needs to change, which experience is available and what results were measured. Cases and results open separate views in a dialog; technical details, incident history and lesson retire/restore controls are available through disclosures. `/api/learning` exposes the same data.
+
+Retrieved cases now include versioned situation labels, shared labels and current-versus-historical differences, including fleet counts. These explain the existing numeric ranking; they do not establish improved retrieval effectiveness. Explicitly truncated evaluations and invalid regret values are excluded from case retrieval. Old stored signatures gain labels on retrieval without a database migration. See the [guide](docs/adaptation-and-learning.md#how-historical-retrieval-works) for weights, thresholds, limitations and the next improvements to evaluate.
+
+`python3 -m simulator.episodes --episodes 3 --fresh` demonstrates same-scenario replay with a mock policy that copies an oracle-preferred historical plan. It does not establish that HappyRobot learns. SQLite is the only database needed or planned.
+
+`python3 -m simulator.evaluation --output .runtime/learning-evaluation` runs held-out matched snapshots with frozen training memory, three common future RNG seeds, hold/random/warning/replay comparators, wind changes, changed ignition location and reduced fleet. It saves the training SQLite database and complete results JSON without touching the live store, rejects truncated oracle searches and refuses to overwrite results. See [evaluation results and limitations](docs/learning-evaluation.md).
+
+Each decision payload also carries a bounded `episode_brief` (≤3 cases, ≤5 lessons, ≤1200 characters, closing with "evidence, not orders") and, when the dispatcher left them empty, the fleet workflow's `mission`/`priority_districts`/`downwind_front`/`tactical_constraints` are filled from it. With `LP_EXPERIENCE_WORKFLOW=1` the new callable **Obtener experiencia** workflow (HackSpain folder, unpublished; `simulator/curator.py`) judges which precedents apply and fills those fields with provenance; any failure falls back to the deterministic brief. No existing workflow was edited or republished.
+
+With `OPENROUTER_API_KEY` in the gitignored `.env` (or `REFLEX_MODE=shadow`), `simulator/reflex.py` runs **Jev** (`typesafe/jev-1.13`, typed decisions API) in the shadow of each HappyRobot decision: a compact belief state, one typed `choice` per vehicle among the oracle's validated candidates, an escalate `noul` and a threat `score`, in ~250 ms. The verdict (route, confidence, agreement with Central) is stored in the `reflexes` table and graded by the same oracle seeds in the post-mortem; it is never applied. High-stakes orders, low confidence, unknown choices, invalid assemblies and timeouts all route to Central. The dashboard shows it as card 05 "¿Quién decide?" and as a post-mortem column. See `docs/self-healing-loop.md` §5.
+
+`python3 -m simulator.adaptation_eval --output .runtime/adaptation-eval` scores hold, warning, deterministic-brief and oracle-plan-replay policies on held-out seeds across ignition points, winds, fleets and wind shifts, and reports retrieval coverage and divergence calibration. See [adaptation evaluation](docs/adaptation-evaluation.md).
+
+One-page loop with diagrams: [self-healing loop](docs/self-healing-loop.md). Methods considered: [continuous-learning notes](docs/continuous-learning-notes.md). The [proposal audit](docs/proposal-audit.md) tracks all earlier suggestions, evidence and unfinished integration work, including input triage, two-way communication and live experience attribution.
 
 ## Verify
 
@@ -88,7 +131,7 @@ node --test tests/test_dashboard.cjs
 node --check simulator/static/app.js
 ```
 
-Tests cover spread timing, wind, containment, local knowledge, satellite latency, evacuation, blocked routes, stale/invalid commands, immutable replay, MCP parsing, the black box, telemetry signals, the oracle, the reflection client, the healing tiers and the reference loop case. Live HappyRobot calls are mocked in tests. Restart the server after Python changes; no hot reload.
+Tests cover spread timing, wind, containment, local knowledge, satellite latency, evacuation, blocked routes, stale/invalid commands, immutable replay, MCP parsing, the black box, telemetry signals, the oracle, the reflection client, the healing tiers, the reference loop case, the belief-world ensemble and forecast divergence, situation signatures, case retrieval, lesson credit and the episode harness. Live HappyRobot calls are mocked in tests. Restart the server after Python changes; no hot reload.
 
 [Recorded validation cases](docs/demo-validation.md) include the real HappyRobot run IDs and physical outcomes.
 

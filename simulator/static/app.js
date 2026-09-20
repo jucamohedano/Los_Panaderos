@@ -154,6 +154,8 @@ window.AerialView = (() => {
       for(const o of s.observed_cells||[]){if(o.burning)fire(o.x,o.y,o.observed_at!==s.tick,o.intensity??1);else{c.fillStyle=o.observed_at===s.tick?'#aecfac0a':'#aecfac04';c.fillRect(o.x*Z,o.y*Z,Z,Z)}}
       for(const f of s.truck?.observed_fire||[]){const key=f.x+','+f.y;const old=fires.find(p=>p.x===f.x&&p.y===f.y);if(old)old.stale=false;else fire(f.x,f.y)}
       for(const [x,y] of s.satellite?.blocks||[]){c.fillStyle='#e0ae5b22';c.fillRect(x*Z,y*Z,80,80);c.strokeStyle='#d8b06977';c.strokeRect(x*Z,y*Z,80,80)}
+      // Possible-worlds fan: where the believed fire is likely to be by the forecast horizon. Live only; replay frames carry no forecast.
+      if(!s.replay&&s.forecast&&!s.forecast.consumed)for(const [x,y,p] of s.forecast.burn_probability||[]){if(p<.15)continue;c.fillStyle=`rgba(255,${Math.round(190-p*110)},60,${.12+p*.3})`;c.fillRect(x*Z+1,y*Z+1,Z-2,Z-2)}
     }else{
       for(let y=0;y<s.height;y++)for(let x=0;x<s.width;x++){
         const cell=s.cells[y][x];const burned=cell.burned??(!cell.fuel?1:0);
@@ -201,7 +203,8 @@ window.AerialView = (() => {
     }else{text(c,38,361,'TOWN · CÁRTAMA');text(c,585,39,'FARM');text(c,31,546,'FIRE STATION')}
     text(c,60,28,'N ↑');
     text(c,549,541,`WIND →  X ${s.wind[0]} · Y ${s.wind[1]}`);text(c,275,28,belief?'OBSERVATION / THERMAL OVERLAY':(s.geography?.map_style==='illustrated'?'BRUNETE · ILLUSTRATED TERRAIN':s.geography?'BRUNETE · REAL AERIAL IMAGE':'AERIAL VIEW · SIMULATED TERRAIN'));
-    if(belief){distanceAxes(c,s);ObservationMap.labels(c,s);}
+    if(belief){distanceAxes(c,s);ObservationMap.labels(c,s);
+      if(!s.replay&&s.forecast)text(c,275,42,s.forecast.consumed?`FORECAST DIVERGED · REPLANNING`:`POSSIBLE WORLDS t+${s.forecast.horizon} · ${s.forecast.branches} BRANCHES · DISPERSION ${s.forecast.dispersion}`);}
   }
   function frame(now){
     requestAnimationFrame(frame);if(now-lastFrame<33||!previous||document.hidden)return;
@@ -245,8 +248,10 @@ legendTown:'Viviendas urbanas',legendFarm:'Viviendas de granja',legendFields:'Cu
 archiveHeadline:'Reproducción · escenario histórico',archiveTag:'ARCHIVO · TERRENO DE LA GRABACIÓN',archiveNote:'Escenario histórico de la grabación; no representa el incidente actual de Brunete.',archiveCode:'ARCHIVO',
 censusLink:'Ayuntamiento de Brunete · padrón 2025',censusAssumptions:'Distribución por distritos estimada; ocupación de granja y refugios supuestos.',pnoaIntro:'Ilustración adaptada de una referencia',
 fleetTitle:'Medios de respuesta',fleetTrucks:'camiones',fleetScouts:'exploradores',fleetExtinguishers:'drones Squirtle',scoutsShort:'exploración',extinguishersShort:'Squirtle',applyFleet:'Aplicar flota',fleetHelp:'Configura antes de la ignición. Reinicia para cambiar los medios; los recuentos se conservan.',noVehicles:'Sin vehículos',addFire:'Añadir fuego en el mapa',addFireArmed:'Añadir fuego · ACTIVADO',addFireHint:'Modo ignición activado: clic en el mapa. Durante la deliberación, el fuego queda en cola.',queuedFires:'igniciones en cola',
+forecast:'Futuros · mundos posibles',forecastNote:'Ensamble de rollouts del mundo tal como el sistema lo cree (sin fuego oculto). Si lo observado contradice el pronóstico, se emite forecast_divergence y el agente replanifica. Frecuencias del modelo, no predicción operativa.',fcDistrict:'Distrito',fcThreat:'P(fuego a ≤8 celdas)',fcOutcome:'Resultado más probable',fcNone:'Sin pronóstico todavía: se calcula tras cada decisión.',fcSummary:(f)=>`Emitido t=${f.issued_at} · horizonte t+${f.horizon} · ${f.branches} ramas · dispersión ${f.dispersion} · ~${f.expected_burning_cells} celdas ardiendo esperadas (${f.believed_burning_cells} creídas ahora)`,fcConsumed:'Pronóstico invalidado; esperando nueva decisión.',fcDiverged:(d)=>d.distance==null?`Premisa rota en t=${d.tick}: el viento cambió; todas las ramas asumían el viento anterior.`:`Divergencia en t=${d.tick}: distancia ${d.distance} > umbral ${d.threshold}.`,fcChecks:'Comprobaciones',fcWind:'viento',fcHeld:'coincide',fcBroke:'DIVERGE',
 postmortem:'Post-mortem · oráculo y reflexión',postmortemNote:'El oráculo evalúa con retrospectiva (conoce el fuego oculto). Nunca decide; solo mide. Promover un parche es humano.',pmActual:'Real',pmBest:'Mejor',pmRegret:'Regret',pmGap:'Brecha',pmLoop:'Bucle',pmLessons:'Lecciones activas (se envían al agente)',pmNone:'Sin decisiones analizadas todavía.',pmPending:'analizando…',pmPatches:'Parches propuestos (no promovidos)',
-sources:{central:'Central',edge:'Agente dron',drone:'Dron','drone → truck':'Dron → Dotación','scout agent':'Agente explorador','scout → central':'Explorador → Central','drone-1':'Squirtle',system:'Sistema',simulation:'Simulación',dispatch:'Despacho',autopilot:'Navegación',weather:'Meteorología',farmer:'Avisante',people:'Población','post-mortem':'Post-mortem'}},
+learning:'Aprendizaje · experiencia y curva de regret',learningNote:'Antes de cada decisión se recuperan los casos pasados más parecidos (por distancia de situación, sin fuego oculto) y las lecciones relevantes; son evidencia, no órdenes. Las lecciones se acreditan por el regret de las decisiones que las vieron y se retiran si no ayudan.',lcIncident:'Incidente',lcDecisions:'Decisiones',lcRegret:'Regret medio',lcGaps:'Brechas',lcDiverg:'Divergencias',lcCases:'Casos previos',lcLessons:'Lecciones vistas',lcNone:'Sin episodios evaluados todavía.',lcCurve:'Regret medio por episodio',lcTrend:(a,b)=>`primer episodio ${a} → último ${b}`,lcUsed:'Experiencia enviada en la última decisión',lcNoCases:'Sin casos parecidos (memoria vacía o situación nueva).',lcCase:(c)=>`d=${c.similarity_distance} · t=${c.tick} · ${c.event_type} · regret ${c.regret??'—'}${c.gap_type?` (${c.gap_type})`:''}`,lcDid:'Hizo',lcOracle:'Oráculo prefería',lcLedger:'Libro de lecciones',lcUses:'usos',lcWith:'regret con',lcWithout:'sin',lcRetire:'Retirar',lcRestore:'Restaurar',lcRetired:'retirada',
+sources:{central:'Central',edge:'Agente dron',drone:'Dron','drone → truck':'Dron → Dotación','scout agent':'Agente explorador','scout → central':'Explorador → Central','drone-1':'Squirtle',system:'Sistema',simulation:'Simulación',dispatch:'Despacho',autopilot:'Navegación',weather:'Meteorología',farmer:'Avisante',people:'Población','post-mortem':'Post-mortem',forecast:'Futuros'}},
 en:{eyebrow:'OPERATIONS CENTER · CECOP',subhead:'CIVIL PROTECTION · WILDLAND RESPONSE',setup:'Set up incident',hint:'Configure the fleet before starting. Click the map for the origin, ignite, apply wind and send the smoke report. During the incident, enable Add fire for new ignitions; they queue while agents deliberate.',truth:'Actual situation',truthTag:'BRUNETE · ILLUSTRATED TERRAIN',truthCesiumTag:'BRUNETE · ILLUSTRATED TERRAIN',truthIllustratedTag:'BRUNETE · ILLUSTRATED TERRAIN',belief:'What the system sees',beliefTag:'SENSORS + DELAYED SATELLITE',mission:'MISSION / ORDER',trail:'COMMUNICATIONS',inspect:'HappyRobot technical record',explain:'HappyRobot chooses scouting, containment or district warnings. Illustrated terrain, simulated fire and satellite. Not an operational forecast.',footerNote:'HappyRobot decides. Illustration inspired by Brunete; educational grid, not Rothermel/Catastro. Clock pauses during deliberation; replay never calls AI.',workflow:'Workflow',watch:'Watch',active:'Active',busy:'AGENTS DELIBERATING · CLOCK PAUSED',live:'Live',paused:'Paused',replay:'Replay',mapFallback:'Non-georeferenced illustration · approximate scale',firmsDown:'FIRMS unavailable',
 kClock:'Clock',kThreat:'Threat',kPeople:'PEOPLE AT RISK',kDrone:'Drones',kCrew:'Trucks',kAgents:'Agents',
 recordRun:'Start recording',stopRec:'Stop',playRec:'Play recording',download:'Download',openRec:'Open',ignite:'1 · Ignite',call:'2 · Smoke report',step:'+1',speed:'Speed',wind:'WIND',windHelp:'X east · Y south · demo units',applyWind:'Apply',calmWind:'Calm',ask:'Ask agents',reset:'↺ Reset',liveBtn:'Live',spread:'Fire spread',
@@ -271,13 +276,95 @@ legendTown:'Town homes',legendFarm:'Farm homes',legendFields:'Fields',legendWood
 archiveHeadline:'Replay · historical scenario',archiveTag:'ARCHIVE · RECORDED TERRAIN',archiveNote:'Historical recording scenario; not the current Brunete incident.',archiveCode:'ARCHIVE',
 censusLink:'Brunete Town Council · 2025 census',censusAssumptions:'Estimated district allocations; assumed farm occupancy and refuges.',pnoaIntro:'Illustration adapted from a reference',
 fleetTitle:'Response assets',fleetTrucks:'trucks',fleetScouts:'scouts',fleetExtinguishers:'Squirtle drones',scoutsShort:'scout',extinguishersShort:'Squirtle',applyFleet:'Apply fleet',fleetHelp:'Configure before ignition. Reset to change assets; counts are preserved.',noVehicles:'No vehicles',addFire:'Add fire on map',addFireArmed:'Add fire · ON',addFireHint:'Ignition mode on: click the map. Fires are queued during deliberation.',queuedFires:'queued ignitions',
+forecast:'Futures · possible worlds',forecastNote:'Ensemble of rollouts of the world as the system believes it (hidden fire excluded). When observations contradict the forecast, forecast_divergence is raised and the agent replans. Model frequencies, not an operational forecast.',fcDistrict:'District',fcThreat:'P(fire within 8 cells)',fcOutcome:'Most likely outcome',fcNone:'No forecast yet: one is computed after each decision.',fcSummary:(f)=>`Issued t=${f.issued_at} · horizon t+${f.horizon} · ${f.branches} branches · dispersion ${f.dispersion} · ~${f.expected_burning_cells} burning cells expected (${f.believed_burning_cells} believed now)`,fcConsumed:'Forecast invalidated; awaiting a new decision.',fcDiverged:(d)=>d.distance==null?`Premise broken at t=${d.tick}: the wind changed; every branch assumed the old wind.`:`Divergence at t=${d.tick}: distance ${d.distance} > threshold ${d.threshold}.`,fcChecks:'Checks',fcWind:'wind',fcHeld:'holds',fcBroke:'DIVERGED',
 postmortem:'Post-mortem · oracle and reflection',postmortemNote:'The oracle grades with hindsight (it knows hidden fire). It never decides; it only measures. Promoting a patch is human.',pmActual:'Actual',pmBest:'Best',pmRegret:'Regret',pmGap:'Gap',pmLoop:'Loop',pmLessons:'Active lessons (sent to the agent)',pmNone:'No analysed decisions yet.',pmPending:'analysing…',pmPatches:'Proposed patches (not promoted)',
-sources:{central:'Central',edge:'Drone agent',drone:'Drone','drone → truck':'Drone → Engine','scout agent':'Scout agent','scout → central':'Scout → Central','drone-1':'Squirtle',system:'System',simulation:'Simulation',dispatch:'Dispatch',autopilot:'Navigation',weather:'Weather',farmer:'Caller',people:'People','post-mortem':'Post-mortem'}}
+learning:'Learning · experience and regret curve',learningNote:'Before each decision the most similar past cases (by situation distance, hidden fire excluded) and the relevant lessons are retrieved; they are evidence, not orders. Lessons are credited with the regret of the decisions that saw them and retired when they do not help.',lcIncident:'Incident',lcDecisions:'Decisions',lcRegret:'Mean regret',lcGaps:'Gaps',lcDiverg:'Divergences',lcCases:'Prior cases',lcLessons:'Lessons shown',lcNone:'No graded episodes yet.',lcCurve:'Mean regret per episode',lcTrend:(a,b)=>`first episode ${a} → latest ${b}`,lcUsed:'Experience sent with the last decision',lcNoCases:'No similar cases (empty memory or a new situation).',lcCase:(c)=>`d=${c.similarity_distance} · t=${c.tick} · ${c.event_type} · regret ${c.regret??'—'}${c.gap_type?` (${c.gap_type})`:''}`,lcDid:'Did',lcOracle:'Oracle preferred',lcLedger:'Lesson ledger',lcUses:'uses',lcWith:'regret with',lcWithout:'without',lcRetire:'Retire',lcRestore:'Restore',lcRetired:'retired',
+sources:{central:'Central',edge:'Drone agent',drone:'Drone','drone → truck':'Drone → Engine','scout agent':'Scout agent','scout → central':'Scout → Central','drone-1':'Squirtle',system:'System',simulation:'Simulation',dispatch:'Dispatch',autopilot:'Navigation',weather:'Weather',farmer:'Caller',people:'People','post-mortem':'Post-mortem',forecast:'Futures'}}
 };
 const STATUS_I18N={
 es:{at_station:'en base',mobilizing:'movilizando',en_route:'en ruta',suppressing:'suprimiendo',returning:'regresando',retreating:'replegando',blocked:'bloqueado',trapped:'atrapado',holding:'en espera',awaiting_assignment:'esperando misión',hold:'mantener',scout:'explorar',contain:'contener',warn:'avisar',patrol:'patrullando',continue:'continuar',on_scene:'en zona',evacuate_town:'avisar distrito',evacuate_farm:'avisar granja',unwarned:'sin aviso',evacuating:'evacuando',safe:'a salvo',burnt:'expuestos'},
 en:{at_station:'at station',mobilizing:'mobilizing',en_route:'en route',suppressing:'suppressing',returning:'returning',retreating:'retreating',blocked:'blocked',trapped:'trapped',holding:'holding',awaiting_assignment:'awaiting assignment',hold:'hold',scout:'scout',contain:'contain',warn:'warn',patrol:'patrolling',continue:'continue',on_scene:'on scene',evacuate_town:'warn district',evacuate_farm:'warn farm',unwarned:'unwarned',evacuating:'evacuating',safe:'safe',burnt:'exposed'}
 };
+Object.assign(I18N.es,{
+  learning:'Experiencia y resultados',learningNote:'El agente recibe casos parecidos antes de decidir. Después comparamos su decisión con otras alternativas simuladas.',
+  adapt:'Adaptación',adaptHint:'Del pronóstico a la experiencia · abre una tarjeta para entenderla',closeInsight:'Cerrar',
+  adFuture:'¿Qué puede pasar?',adChange:'¿Hay que cambiar el plan?',adMemory:'¿Qué experiencia tiene?',adLearn:'¿Qué resultados obtiene?',
+  adFutureNone:'Espera la primera decisión',adForecast:n=>`${n} futuros simulados`,
+  adThreat:(name,p)=>`${name} · ${p}% de ramas con fuego cercano`,
+  adWaiting:'Sin comprobar',adChecking:'Contrastar con nuevas observaciones',
+  adRecheck:'Nuevo plan sin comprobar',adPrevious:t=>`El pronóstico anterior se desvió en t=${t}`,
+  adHeld:'Dentro de lo previsto',adDiverged:'Replanificación solicitada',
+  adCheck:t=>`Última comprobación · t=${t}`,adReplay:'Reproducción · evidencia en vivo oculta',
+  adCases:n=>`${n} ${n===1?'caso enviado':'casos enviados'}`,adLessons:n=>`${n} ${n===1?'lección enviada':'lecciones enviadas'} · uso no confirmado`,
+  adNoMemory:'Espera la primera decisión',adMemoryNone:'Sin precedentes similares',
+  adNoGrades:'Aún sin evaluar',adLoading:'Cargando evaluación…',adUnavailable:'Evaluación no disponible',
+  adRegret:(a,b)=>`${a} → ${b}`,adEpisodes:n=>`${n} ${n===1?'incidente':'incidentes'} · diferencia de coste, menor es mejor`,
+  adCaution:'Comparación descriptiva; no demuestra aprendizaje.',
+  learningViews:'Vistas de aprendizaje',experienceTab:'Experiencia disponible',resultsTab:'Resultados anteriores',
+  casesTitle:'Casos para la última decisión',casesHelp:'Situaciones anteriores parecidas a la actual. Son referencias: el agente decide si aplican.',
+  sentNotUsed:'Enviados · uso no confirmado',briefTitle:'Resumen enviado al agente',briefMeta:(n,c,l)=>`${n} caracteres · ${c} casos · ${l} reglas · evidencia, no órdenes`,curatorUsed:c=>` · curado por HappyRobot (confianza ${c})`,curatorDeferred:' · HappyRobot dejó el resumen determinista',curatorOff:' · resumen determinista (SQLite, sin curador)',experienceWaiting:'Los casos aparecerán tras la primera decisión. Sin precedentes, el agente usa la información actual.',
+  adReflex:'¿Quién decide?',adReflexCentral:'Central (HappyRobot)',adReflexWaiting:'Reflejo Jev en sombra: se anota junto a cada decisión, nunca actúa',adReflexSub:(a,ms,route)=>`Jev (sombra) · coincide ${a}% · ${ms} ms · ${route==='reflex'?'actuaría':'escalaría'}`,adReflexGrade:(g)=>g==null?'':` · coste ${g>0?'+':''}${g} vs Central`,pmReflex:'Reflejo Jev (sombra)',pmReflexCell:(r)=>`${r.route==='reflex'?'actuaría':'escalaría'} · ${Math.round((r.agreement??0)*100)}% igual · ${r.latency_ms} ms${r.grade?` · regret ${r.grade.regret}`:''}`,
+  savedLessons:'Reglas guardadas',lessonHelp:'Una reflexión puede proponer una regla para decisiones futuras. Las veces que se envió no demuestran que se utilizara.',
+  resultsTitle:'¿Cómo se evaluaron las decisiones?',metricHelp:'Diferencia de coste frente al mejor plan evaluado después del incidente. Menos puntos es mejor; cero no significa misión cumplida.',
+  comparisonNote:'Cada episodio es un incidente distinto. Esta comparación describe resultados; no demuestra que la memoria haya causado una mejora.',
+  incidentHistory:'Ver historial por incidente',metricTitle:'¿Qué significa «regret»?',
+  metricDefinition:'Es la diferencia entre el coste simulado de la decisión y el mejor plan encontrado por el evaluador retrospectivo («oráculo»). Incluye personas expuestas, avisos y fuego. No es un porcentaje ni una medida de personas salvadas.',
+  lcDecisions:'Evaluadas / total',lcRegret:'Diferencia media',lcGaps:'Fallos detectados',lcDiverg:'Desvíos / comprobaciones',lcCases:'Casos disponibles',lcLessons:'Reglas enviadas',
+  caseName:id=>`Caso #${id}`,matches:'Se parece en',currentOnly:'Ahora',pastOnly:'En ese caso',
+  labelsMissing:'Este registro no incluye etiquetas de contexto.',caseDetails:'Ver datos técnicos y órdenes originales',
+  pastAction:'Qué se hizo',betterAction:'Alternativa del evaluador',noAlternative:'Sin alternativa mejor registrada',notRecorded:'No registrado',
+  caseScore:n=>`Evaluación anterior: ${n} puntos de diferencia`,caseLesson:'Reflexión guardada',points:'puntos',
+  firstResult:'Primer incidente',latestResult:'Último incidente',gradedDecisions:'Decisiones evaluadas',incidentAxis:'Incidentes, del primero al último',
+  noLessons:'Aún no hay reglas guardadas. Aparecerán cuando una reflexión cumpla los criterios de confianza.',
+  ruleActive:'Activa',ruleRetired:'Retirada',ruleExposure:n=>`Enviada en ${n} decisiones evaluadas`,technicalComparison:'Comparación descriptiva',
+  fleetLabel:(role,n)=>`${n} ${(Number(n)===1?{scouts:'explorador',extinguishers:'dron de extinción',trucks:'camión'}:{scouts:'exploradores',extinguishers:'drones de extinción',trucks:'camiones'})[role]||role}`,
+  eventLabel:event=>`Motivo: ${({'farmer_call':'aviso inicial','local_observation':'observación','forecast_divergence':'desvío del pronóstico','wind_changed':'cambio de viento'})[event]||event}`,
+  contextLabels:{'phase:early':'Respuesta inicial','phase:later':'Incidente avanzado','fire:observed':'Fuego observado','fire:unconfirmed':'Fuego sin confirmar',
+    'wind:calm':'Sin viento','wind:light':'Viento moderado','wind:strong':'Viento fuerte','wind:north':'Viento hacia el norte','wind:northeast':'Viento hacia el noreste',
+    'wind:east':'Viento hacia el este','wind:southeast':'Viento hacia el sureste','wind:south':'Viento hacia el sur','wind:southwest':'Viento hacia el suroeste',
+    'wind:west':'Viento hacia el oeste','wind:northwest':'Viento hacia el noroeste','people:downwind':'Personas sin avisar a sotavento',
+    'people:no_downwind':'Sin personas pendientes a sotavento','people:nearby':'Aviso o fuego cerca de personas sin avisar'},
+});
+Object.assign(I18N.en,{
+  learning:'Experience and results',learningNote:'The agent receives similar cases before deciding. Afterwards, we compare its decision with other simulated alternatives.',
+  adapt:'Adaptation',adaptHint:'From forecasts to experience · open a card to understand it',closeInsight:'Close',
+  adFuture:'What could happen?',adChange:'Does the plan need to change?',adMemory:'What experience is available?',adLearn:'What results does it get?',
+  adFutureNone:'Waiting for the first decision',adForecast:n=>`${n} simulated futures`,
+  adThreat:(name,p)=>`${name} · ${p}% of branches with nearby fire`,
+  adWaiting:'Not checked yet',adChecking:'Compare with new observations',
+  adRecheck:'New plan not checked',adPrevious:t=>`The previous forecast diverged at t=${t}`,
+  adHeld:'Within the forecast',adDiverged:'Replanning requested',
+  adCheck:t=>`Latest check · t=${t}`,adReplay:'Replay · live evidence hidden',
+  adCases:n=>`${n} ${n===1?'case':'cases'} sent`,adLessons:n=>`${n} ${n===1?'lesson':'lessons'} sent · use unconfirmed`,
+  adNoMemory:'Waiting for the first decision',adMemoryNone:'No similar precedents',
+  adNoGrades:'Not yet evaluated',adLoading:'Loading evaluation…',adUnavailable:'Evaluation unavailable',
+  adRegret:(a,b)=>`${a} → ${b}`,adEpisodes:n=>`${n} ${n===1?'incident':'incidents'} · cost gap, lower is better`,
+  adCaution:'Descriptive comparison; does not prove learning.',
+  learningViews:'Learning views',experienceTab:'Available experience',resultsTab:'Previous results',
+  casesTitle:'Cases for the last decision',casesHelp:'Earlier situations similar to the current one. They are references: the agent decides whether they apply.',
+  sentNotUsed:'Sent · use unconfirmed',briefTitle:'Brief sent to the agent',briefMeta:(n,c,l)=>`${n} characters · ${c} cases · ${l} rules · evidence, not orders`,curatorUsed:c=>` · curated by HappyRobot (confidence ${c})`,curatorDeferred:' · HappyRobot kept the deterministic brief',curatorOff:' · deterministic brief (SQLite, no curator)',experienceWaiting:'Cases will appear after the first decision. Without precedents, the agent uses current information.',
+  adReflex:'Who decides?',adReflexCentral:'Central (HappyRobot)',adReflexWaiting:'Jev reflex in shadow: recorded beside each decision, never acts',adReflexSub:(a,ms,route)=>`Jev (shadow) · agrees ${a}% · ${ms} ms · ${route==='reflex'?'would act':'would escalate'}`,adReflexGrade:(g)=>g==null?'':` · cost ${g>0?'+':''}${g} vs Central`,pmReflex:'Jev reflex (shadow)',pmReflexCell:(r)=>`${r.route==='reflex'?'would act':'would escalate'} · ${Math.round((r.agreement??0)*100)}% same · ${r.latency_ms} ms${r.grade?` · regret ${r.grade.regret}`:''}`,
+  savedLessons:'Saved rules',lessonHelp:'A reflection can propose a rule for future decisions. Sending a rule does not prove it was used.',
+  resultsTitle:'How were the decisions evaluated?',metricHelp:'Cost gap to the best plan evaluated after the incident. Fewer points is better; zero does not mean mission complete.',
+  comparisonNote:'Each episode is a separate incident. This comparison describes outcomes; it does not show that memory caused an improvement.',
+  incidentHistory:'View history by incident',metricTitle:'What does “regret” mean?',
+  metricDefinition:'The simulated cost of the decision minus the best plan found by the hindsight evaluator (“oracle”). It includes exposed people, warnings and fire. It is not a percentage or a count of people saved.',
+  lcDecisions:'Evaluated / total',lcRegret:'Mean cost gap',lcGaps:'Issues found',lcDiverg:'Divergences / checks',lcCases:'Available cases',lcLessons:'Rules sent',
+  caseName:id=>`Case #${id}`,matches:'Similar in',currentOnly:'Now',pastOnly:'In that case',
+  labelsMissing:'This record has no context labels.',caseDetails:'View technical data and original orders',
+  pastAction:'What happened',betterAction:'Evaluator’s alternative',noAlternative:'No better alternative recorded',notRecorded:'Not recorded',
+  caseScore:n=>`Previous evaluation: ${n} points apart`,caseLesson:'Saved reflection',points:'points',
+  firstResult:'First incident',latestResult:'Latest incident',gradedDecisions:'Evaluated decisions',incidentAxis:'Incidents, first to latest',
+  noLessons:'No saved rules yet. They appear when a reflection meets the confidence criteria.',
+  ruleActive:'Active',ruleRetired:'Retired',ruleExposure:n=>`Sent in ${n} evaluated decisions`,technicalComparison:'Descriptive comparison',
+  fleetLabel:(role,n)=>`${n} ${(Number(n)===1?{scouts:'scout',extinguishers:'extinguisher drone',trucks:'truck'}:{scouts:'scouts',extinguishers:'extinguisher drones',trucks:'trucks'})[role]||role}`,
+  eventLabel:event=>`Trigger: ${({'farmer_call':'initial report','local_observation':'observation','forecast_divergence':'forecast divergence','wind_changed':'wind change'})[event]||event}`,
+  contextLabels:{'phase:early':'Early response','phase:later':'Later response','fire:observed':'Fire observed','fire:unconfirmed':'Fire unconfirmed',
+    'wind:calm':'Calm wind','wind:light':'Moderate wind','wind:strong':'Strong wind','wind:north':'Wind toward north','wind:northeast':'Wind toward northeast',
+    'wind:east':'Wind toward east','wind:southeast':'Wind toward southeast','wind:south':'Wind toward south','wind:southwest':'Wind toward southwest',
+    'wind:west':'Wind toward west','wind:northwest':'Wind toward northwest','people:downwind':'Unwarned people downwind',
+    'people:no_downwind':'No unwarned people downwind','people:nearby':'Report or fire near unwarned people'},
+});
 function statusText(v){const labels=STATUS_I18N[lang]||{};return Object.hasOwn(labels,v)?labels[v]:v}
 function updateErrors(){const messages=[clientError,pollingError,state?.error].filter(Boolean);$('error').textContent=[...new Set(messages)].join('\n');$('error').hidden=!messages.length}
 function setClientError(error){clientError=error?.message||String(error);updateErrors()}
@@ -354,10 +441,10 @@ function renderFleet(s){
   if(!fleetDirty||s.replay||locked)for(const role of ['trucks','scouts','extinguishers'])$('fleet-'+role).value=counts[role];
   for(const role of ['trucks','scouts','extinguishers'])$('fleet-'+role).disabled=locked;
   $('applyFleet').disabled=locked;
-  $('fleetSummary').textContent=`${counts.trucks} ${t.fleetTrucks} · ${counts.scouts} ${t.fleetScouts} · ${counts.extinguishers} ${t.fleetExtinguishers}`;
+  $('fleetSummary').textContent=['trucks','scouts','extinguishers'].map(role=>t.fleetLabel(role,counts[role])).join(' · ');
   $('droneKpi').textContent=`${counts.scouts} ${t.scoutsShort} · ${counts.extinguishers} ${t.extinguishersShort}`;
   $('droneStatus').textContent=statusSummary([...vehicles.scouts,...vehicles.extinguishers]);
-  $('crew').textContent=`${counts.trucks} ${t.fleetTrucks}`;
+  $('crew').textContent=t.fleetLabel('trucks',counts.trucks);
   $('crewStatus').textContent=statusSummary(vehicles.trucks);
 }
 function observedCount(vehicles){
@@ -379,7 +466,7 @@ function applyMapMode(){
   if (st.ready) requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
   $('wx').hidden=true;
 }
-function applyLang(){const t=I18N[lang];document.documentElement.lang=lang;window.uiLang=lang;document.querySelectorAll('[data-i18n]').forEach(el=>{const v=t[el.dataset.i18n];if(v!==undefined)el.textContent=v});document.querySelectorAll('[data-i18n-aria-label]').forEach(el=>{const value=t[el.dataset.i18nAriaLabel];if(value)el.setAttribute('aria-label',value)});$('langToggle').textContent=lang==='es'?'EN':'ES';$('replayPlay').textContent=replayTimer||replayStarting?t.replayStop:t.replayStart;applyMapMode()}
+function applyLang(){const t=I18N[lang];document.documentElement.lang=lang;window.uiLang=lang;document.querySelectorAll('[data-i18n]').forEach(el=>{const v=t[el.dataset.i18n];if(v!==undefined)el.textContent=v});document.querySelectorAll('[data-i18n-aria-label]').forEach(el=>{const value=t[el.dataset.i18nAriaLabel];if(value)el.setAttribute('aria-label',value)});$('langToggle').textContent=lang==='es'?'EN':'ES';$('replayPlay').textContent=replayTimer||replayStarting?t.replayStop:t.replayStart;applyMapMode();if(learningData&&!state?.replay)renderLearningData(learningData);if(learningFailed)$('learningStatus').textContent=t.adUnavailable}
 $('langToggle').onclick=()=>{lang=lang==='es'?'en':'es';applyLang();if(state)render(state)};
 async function act(action,extra={},loadToken=null){
   if(loadToken===null)loadEpoch++;else if(loadToken!==loadEpoch)return false;
@@ -499,10 +586,76 @@ $('beliefstats').textContent=`${s.observation.length} ${t.firesShared} · ${obse
   el.textContent=`${label} · ${g.count.toLocaleString(lang==='es'?'es-ES':'en-US')} · ${statusText(g.status)}${g.burnt?` · ${g.burnt.toLocaleString(lang==='es'?'es-ES':'en-US')} ${t.exposedLbl}`:''}`;
   return el;
 }));renderRadio(s);$('evidence').textContent=s.run_evidence||'';document.querySelectorAll('.toolbar button,.toolbar select').forEach(b=>{if(b.id==='play'||b.id==='addFire')return;b.disabled=s.busy||s.replay});$('resetSim').disabled=!!s.reset_pending;$('resetSim').textContent=s.reset_pending?t.resetQueued:t.reset;renderFleet(s);renderFireControl(s);$('play').disabled=s.replay||s.busy&&!s.running;$('recordRun').disabled=s.busy||s.replay||s.recording;$('stopRecord').disabled=!s.recording;$('downloadRecord').disabled=!s.recorded_frames;$('playRecord').disabled=busy||s.replay||!s.recorded_frames||s.recording;$('openRecording').disabled=s.busy||s.replay;$('recordRun').textContent=s.recording?`${t.recordingLabel} · ${s.recorded_frames} ${t.framesLabel}`:t.recordRun;
-applyMapMode();
+applyMapMode();renderForecast(s);renderAdaptation(s);
 try{pixelMap($('belief'),s,true);if(!$('truth').hidden)pixelMap($('truth'),s,false)}catch(e){console.error('Canvas render failed',e)}}
+// Futures panel: the belief-world ensemble behind the last decision, and whether observation has since contradicted it.
+function renderForecast(s){
+  const t=I18N[lang],f=s.replay?null:s.forecast,body=$('forecastDistricts')?.querySelector?.('tbody');
+  if(!$('forecastSummary')||!body)return;
+  if(!f){$('forecastSummary').textContent=t.fcNone;body.innerHTML='';$('divergence').innerHTML='';$('surprises').innerHTML='';return}
+  $('forecastSummary').textContent=t.fcSummary(f)+(f.consumed?` · ${t.fcConsumed}`:'');
+  body.innerHTML=Object.entries(f.districts||{}).map(([k,d])=>{
+    const likely=Object.entries(d.outcomes||{}).sort((a,b)=>b[1]-a[1])[0];
+    return `<tr class="${d.p_fire_within_8>=.5?'threat-high':d.p_fire_within_8>0?'threat-some':'threat-none'}"><td>${escapeHTML(k)}</td><td>${Math.round(d.p_fire_within_8*100)}% · ~${d.expected_distance} ${lang==='es'?'celdas':'cells'}</td><td>${likely?`${escapeHTML(statusText(likely[0]))} (${likely[1]}/${f.branches})`:'—'}</td></tr>`}).join('');
+  const d=s.divergence;
+  $('divergence').innerHTML=d?`<strong>${t.fcDiverged(d)}</strong><ul>${(d.what_changed||[]).map(x=>`<li>${escapeHTML(x)}</li>`).join('')}</ul>`:'';
+  $('surprises').innerHTML=(s.surprises||[]).length?`<strong>${t.fcChecks}</strong> `+(s.surprises||[]).map(x=>`<span class="check ${x.divergent?'check-broke':'check-held'}">t${x.tick}: ${x.distance==null?t.fcWind:`${x.distance}/${x.threshold}`} ${x.divergent?t.fcBroke:t.fcHeld}</span>`).join(' '):'';
+}
 // Post-mortem panel: black box decisions graded by the hindsight oracle, with reflections.
-let pollCount=0;
+let pollCount=0,learningData=null,learningFailed=false,learningRequest=0,insightPanel=null;
+function renderAdaptation(s){
+  const t=I18N[lang],replay=!!s.replay,f=replay?null:s.forecast;
+  const set=(id,text)=>{$(id).textContent=text};
+  const top=Object.entries(f?.districts||{}).sort((a,b)=>b[1].p_fire_within_8-a[1].p_fire_within_8)[0];
+  set('adFutureMain',f?t.adForecast(f.branches):'—');
+  set('adFutureSub',replay?t.adReplay:top?t.adThreat(s.people?.[top[0]]?.name||top[0],Math.round(top[1].p_fire_within_8*100)):t.adFutureNone);
+  const last=replay?null:(s.surprises||[]).slice(-1)[0],diverged=!replay&&!!s.divergence;
+  const needsCheck=last&&(last.divergent||(f&&last.tick<=f.issued_at));
+  $('adaptChange').classList.toggle('is-diverged',diverged);
+  set('adChangeMain',diverged?t.adDiverged:needsCheck?t.adRecheck:last?t.adHeld:t.adWaiting);
+  set('adChangeSub',replay?t.adReplay:diverged?(s.divergence.what_changed||[]).join(' · '):needsCheck&&last.divergent?t.adPrevious(last.tick):last?t.adCheck(last.tick):t.adChecking);
+  const x=replay?null:s.experience;
+  set('adMemoryMain',x?t.adCases((x.cases||[]).length):'—');
+  set('adMemorySub',replay?t.adReplay:x?t.adLessons((x.lessons||[]).length):t.adNoMemory);
+  const eps=replay?[]:(learningData?.episodes||[]).filter(e=>e.graded>0&&Number.isFinite(e.mean_regret));
+  set('adLearnMain',eps.length?t.adRegret(eps[0].mean_regret,eps[eps.length-1].mean_regret):'—');
+  set('adLearnSub',replay?t.adReplay:learningFailed?t.adUnavailable:!learningData?t.adLoading:eps.length?t.adEpisodes(eps.length):t.adNoGrades);
+  $('adLearnChart').innerHTML=eps.length>1?sparkline(eps.map(e=>e.mean_regret),240,22):'';
+  $('adaptLearn').title=t.adCaution;
+  const rx=replay?null:s.reflex,shadow=!!rx&&rx.mode!=='off';
+  $('adaptReflex').hidden=!shadow;$('adaptCards').classList.toggle('has-reflex',shadow);
+  if(shadow){set('adReflexMain',t.adReflexCentral);set('adReflexSub',rx.route?t.adReflexSub(Math.round((rx.agreement??0)*100),rx.latency_ms,rx.route)+t.adReflexGrade(rx.grade?.vs_central):t.adReflexWaiting);$('adaptReflex').title=(rx.orders||[]).join(' · ')}
+  $('insightReplay').hidden=!replay;
+  if(insightPanel)$(insightPanel).hidden=replay;
+  if(insightPanel)$('insightTitle').textContent=t[{forecastPanel:'forecast',learningPanel:'learning',postmortemPanel:'postmortem'}[insightPanel]];
+}
+function setLearningView(results){
+  $('learningExperience').hidden=results;$('learningResults').hidden=!results;
+  $('showExperience').setAttribute('aria-pressed',String(!results));
+  $('showResults').setAttribute('aria-pressed',String(results));
+}
+$('showExperience').onclick=()=>setLearningView(false);
+$('showResults').onclick=()=>setLearningView(true);
+function openInsight(panel,results=false){
+  insightPanel=panel;
+  for(const id of ['forecastPanel','learningPanel','postmortemPanel']){
+    $(id).hidden=id!==panel||!!state?.replay;$(id).open=id===panel;
+  }
+  $('insightTitle').textContent=I18N[lang][{forecastPanel:'forecast',learningPanel:'learning',postmortemPanel:'postmortem'}[panel]];
+  if(state)renderAdaptation(state);
+  $('insightDialog').showModal();
+  if(!state?.replay){
+    if(panel==='learningPanel'){
+      setLearningView(results);
+      if(!learningData){$('learningStatus').hidden=false;$('learningStatus').textContent=I18N[lang].adLoading}
+      renderLearning();
+    }
+    if(panel==='postmortemPanel')renderPostmortem();
+  }
+}
+for(const [id,panel] of Object.entries({adaptForecast:'forecastPanel',adaptChange:'forecastPanel',adaptMemory:'learningPanel',adaptLearn:'learningPanel',adaptReflex:'postmortemPanel',openPostmortem:'postmortemPanel'})){
+  $(id).onclick=()=>openInsight(panel,id==='adaptLearn');
+}
 function escapeHTML(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function summarizeOrders(d){
   if(!d||typeof d!=='object')return '—';
@@ -512,18 +665,105 @@ function summarizeOrders(d){
   return parts.length?parts.join(' · '):(d.primary_command||'—');
 }
 async function renderPostmortem(){
-  const t=I18N[lang];let p;
+  const t=I18N[lang],epoch=viewEpoch;let p;
   try{p=await responseJSON(await fetch('/api/postmortem'),t.serverUnavailable)}catch(e){return}
+  if(epoch!==viewEpoch||state?.replay)return;
   if(!$('postmortem'))return;
   $('lessons').innerHTML=p.lessons&&p.lessons.length?`<strong>${t.pmLessons}</strong><ul>${p.lessons.map(l=>`<li>${escapeHTML(l)}</li>`).join('')}</ul>`:'';
   const body=$('postmortem').querySelector('tbody');
   body.innerHTML=p.decisions.length?p.decisions.map(d=>{
     const r=d.result||{},s=d.signals||{},gap=r.gap_type||'pending';
     const regret=r.regret===undefined||r.regret===null?(r.gap_type?'—':t.pmPending):r.regret;
-    const reflection=d.reflection?`<tr class="reflection"><td colspan="7">${escapeHTML(d.reflection)}${d.diagnosis&&d.diagnosis.proposed_rule?`<br><em>→ ${escapeHTML(d.diagnosis.proposed_rule)}</em>`:''}</td></tr>`:'';
-    return `<tr class="gap-${gap}"><td>${d.tick}</td><td>${escapeHTML(summarizeOrders(d.decision))}${d.status!=='applied'?` <b>[${escapeHTML(d.status)}]</b>`:''}</td><td>${escapeHTML(summarizeOrders(r.best_decision))}</td><td>${regret}</td><td>${escapeHTML(gap)}</td><td>${d.latency_s??''}</td><td>${s.loop_detected?'⚠ '+escapeHTML(JSON.stringify(s.repeated_tool_calls||{})):''}</td></tr>`+reflection;
-  }).join(''):`<tr><td colspan="7">${t.pmNone}</td></tr>`;
+    const reflection=d.reflection?`<tr class="reflection"><td colspan="8">${escapeHTML(d.reflection)}${d.diagnosis&&d.diagnosis.proposed_rule?`<br><em>→ ${escapeHTML(d.diagnosis.proposed_rule)}</em>`:''}</td></tr>`:'';
+    const rx=d.reflex?`<span title="${escapeHTML((d.reflex.orders||[]).join(' · '))}">${escapeHTML(t.pmReflexCell(d.reflex))}</span>`:'—';
+    return `<tr class="gap-${gap}"><td>${d.tick}</td><td>${escapeHTML(summarizeOrders(d.decision))}${d.status!=='applied'?` <b>[${escapeHTML(d.status)}]</b>`:''}</td><td>${escapeHTML(summarizeOrders(r.best_decision))}</td><td>${regret}</td><td>${escapeHTML(gap)}</td><td>${d.latency_s??''}</td><td>${s.loop_detected?'⚠ '+escapeHTML(JSON.stringify(s.repeated_tool_calls||{})):''}</td><td>${rx}</td></tr>`+reflection;
+  }).join(''):`<tr><td colspan="8">${t.pmNone}</td></tr>`;
   $('patches').innerHTML=p.patches&&p.patches.length?`<strong>${t.pmPatches}</strong><ul>${p.patches.map(x=>`<li><code>${escapeHTML(x.version_id)}</code> · ${escapeHTML(x.report_path)}</li>`).join('')}</ul>`:'';
+}
+// Learning panel: per-incident regret curve, the experience the last decision saw, and the lesson ledger with credit.
+function sparkline(values,w=240,h=48){
+  const pts=values.map(v=>v??0),max=Math.max(1,...pts),n=pts.length;
+  if(!n)return '';
+  const xy=pts.map((v,i)=>[n>1?i*(w-8)/(n-1)+4:w/2,h-4-(v/max)*(h-8)]);
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"><polyline fill="none" stroke="#ffb74d" stroke-width="2" points="${xy.map(p=>p.map(x=>x.toFixed(1)).join(',')).join(' ')}"/>${xy.map((p,i)=>`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="${pts[i]>0?'#ff8a80':'#a5d6a7'}"><title>${pts[i]}</title></circle>`).join('')}</svg>`;
+}
+async function renderLearning(){
+  const epoch=viewEpoch,request=++learningRequest;let p;
+  try{p=await responseJSON(await fetch('/api/learning'),I18N[lang].serverUnavailable)}catch(e){
+    if(epoch===viewEpoch&&request===learningRequest&&!state?.replay){
+      learningData=null;learningFailed=true;if(state)renderAdaptation(state);
+      $('learningStatus').hidden=false;$('learningStatus').textContent=I18N[lang].adUnavailable;
+      setLearningHTML($('learningCurve'),'');$('learningCurve').textContent=I18N[lang].adUnavailable;
+      const body=$('learningEpisodes')?.querySelector?.('tbody');if(body)setLearningHTML(body,'');
+      setLearningHTML($('experienceUsed'),'');setLearningHTML($('lessonLedger'),'');
+      $('experienceEmpty').hidden=true;$('briefSent').hidden=true;$('lessonSummary').textContent=I18N[lang].savedLessons;
+    }
+    return;
+  }
+  if(epoch!==viewEpoch||request!==learningRequest||state?.replay)return;
+  learningData=p;learningFailed=false;if(state)renderAdaptation(state);
+  $('learningStatus').hidden=true;
+  renderLearningData(p);
+}
+const learningMarkup=new WeakMap();
+function setLearningHTML(element,markup){
+  if(learningMarkup.get(element)!==markup){element.innerHTML=markup;learningMarkup.set(element,markup)}
+}
+function contextLabel(label){
+  const t=I18N[lang],parts=String(label).split(':');
+  if(parts[0]==='fleet')return t.fleetLabel(parts[1],parts[2]);
+  if(parts[0]==='event')return t.eventLabel(parts.slice(1).join(':'));
+  return t.contextLabels[label]||label;
+}
+function labelChips(labels){
+  return labels.map(label=>`<span class="context-chip">${escapeHTML(contextLabel(label))}</span>`).join('');
+}
+function readableOrder(order){
+  return String(order).replace(/^([^:]+): ([a-z_]+)(.*)$/,(_,id,command,target)=>`${id}: ${statusText(command)}${target}`);
+}
+function caseCard(c){
+  const t=I18N[lang],matches=c.matching_labels||[],different=c.differing_labels||{};
+  const orders=items=>(items||[]).map(o=>`<li>${escapeHTML(readableOrder(o))}</li>`).join('');
+  return `<article class="experience-card">
+    <header><h4>${escapeHTML(t.caseName(c.decision_id))}</h4><span>${escapeHTML(t.caseScore(c.regret??'—'))}</span></header>
+    <div class="case-context"><span class="context-caption">${t.matches}</span><div class="context-chips">${matches.length?labelChips(matches.filter(l=>!l.startsWith('event:'))):t.labelsMissing}</div></div>
+    ${(different.current_only?.length||different.case_only?.length)?`<div class="case-differences"><div><strong>${t.currentOnly}</strong>${labelChips(different.current_only||[])||'—'}</div><div><strong>${t.pastOnly}</strong>${labelChips(different.case_only||[])||'—'}</div></div>`:''}
+    <div class="case-plans"><div><h5>${t.pastAction}</h5><ul>${orders(c.did)||t.notRecorded}</ul></div><div><h5>${t.betterAction}</h5><ul>${orders(c.oracle_preferred)||(c.regret===0?t.noAlternative:t.notRecorded)}</ul></div></div>
+    ${c.lesson?`<p class="case-lesson"><strong>${t.caseLesson}</strong> ${escapeHTML(c.lesson)}</p>`:''}
+    <details class="case-technical"><summary>${t.caseDetails}</summary><p>${escapeHTML(t.lcCase(c))}</p><p>${t.lcDid}: ${escapeHTML((c.did||[]).join(' · '))}<br>${t.lcOracle}: ${escapeHTML((c.oracle_preferred||[]).join(' · ')||'—')}</p><pre>${escapeHTML(JSON.stringify({incident_id:c.incident_id,why_similar:c.why_similar,label_version:c.label_version,labels:c.labels},null,2))}</pre></details>
+  </article>`;
+}
+function regretChart(eps){
+  const t=I18N[lang],w=640,h=145,right=22,top=22,bottom=30,max=Math.max(1,...eps.map(e=>e.mean_regret));
+  const left=Math.max(64,String(max).length*16+18);
+  const xy=eps.map((e,i)=>[eps.length>1?left+i*(w-left-right)/(eps.length-1):w/2,h-bottom-e.mean_regret/max*(h-top-bottom)]);
+  const sample=Math.max(1,Math.ceil(eps.length/12));
+  return `<svg class="regret-chart" role="img" aria-label="${escapeHTML(`${t.lcRegret}: ${eps.map(e=>e.mean_regret).join(', ')}. ${t.incidentAxis}`)}" viewBox="0 0 ${w} ${h}">
+    <line x1="${left}" y1="${h-bottom}" x2="${w-right}" y2="${h-bottom}"/><text x="${left-14}" y="${top+4}" text-anchor="end">${max}</text><text x="${left-14}" y="${h-bottom+4}" text-anchor="end">0</text>
+    <polyline points="${xy.map(p=>p.join(',')).join(' ')}" fill="none" stroke="#a5c9c4" stroke-width="2"/>
+    ${xy.map((p,i)=>`<circle cx="${p[0]}" cy="${p[1]}" r="3"><title>${i+1}: ${eps[i].mean_regret} ${t.points}</title></circle>${i%sample===0||i===eps.length-1?`<text x="${p[0]}" y="${h-8}" text-anchor="middle">${i+1}</text>`:''}`).join('')}
+  </svg>`;
+}
+function renderLearningData(p){
+  const t=I18N[lang];
+  const body=$('learningEpisodes')?.querySelector?.('tbody');
+  const eps=(p.episodes||[]).filter(e=>e.graded>0&&Number.isFinite(e.mean_regret));
+  if(eps.length){const first=eps[0].mean_regret,last=eps[eps.length-1].mean_regret;
+    setLearningHTML($('learningCurve'),`<div class="result-stats"><div><span>${t.firstResult}</span><strong>${first}<small>${t.points}</small></strong></div><div><span>${t.latestResult}</span><strong>${last}<small>${t.points}</small></strong></div><div><span>${t.gradedDecisions}</span><strong>${eps.reduce((sum,e)=>sum+e.graded,0)}</strong></div></div>
+      <figure class="regret-figure">${regretChart(eps)}<figcaption>${t.incidentAxis} · <span class="${last<first?'trend-down':last>first?'trend-up':''}">${t.lcTrend(first,last)}</span></figcaption></figure>`)}
+  else{setLearningHTML($('learningCurve'),'');$('learningCurve').textContent=t.lcNone}
+  if(body)setLearningHTML(body,eps.map((e,i)=>`<tr><td>${i+1}</td><td>${escapeHTML((e.incident_id||'').slice(0,8))}</td><td>${e.graded} / ${e.decisions??0}</td><td>${e.mean_regret}</td><td>${(e.judgement_gaps||0)+(e.execution_gaps||0)}</td><td>${e.divergences??0} / ${e.surprise_checks??0}</td><td>${e.cases_available??0}</td><td>${e.lessons_shown??0}</td></tr>`).join(''));
+  const x=p.experience,b=x?.brief;
+  $('briefSent').hidden=!b?.text;
+  if(b?.text){$('briefText').textContent=b.text;const cu=x.curator;$('briefMeta').textContent=t.briefMeta(b.text.length,(b.cases||[]).length,(b.lessons||[]).length)+(cu?(cu.agent_used?t.curatorUsed(cu.confidence.toFixed(2)):t.curatorDeferred):t.curatorOff)}
+  $('experienceEmpty').hidden=!!x?.cases?.length;
+  $('experienceEmpty').textContent=x?t.lcNoCases:t.experienceWaiting;
+  setLearningHTML($('experienceUsed'),(x?.cases||[]).map(caseCard).join(''));
+  const lessons=p.lessons||[];
+  $('lessonSummary').textContent=`${t.savedLessons} (${lessons.length})`;
+  setLearningHTML($('lessonLedger'),lessons.length?lessons.map(l=>`<article class="lesson-card ${l.active?'':'lesson-retired'}"><div><span class="evidence-badge">${l.active?t.ruleActive:t.ruleRetired}</span><p>${escapeHTML(l.rule)}</p><small>${t.ruleExposure(l.uses||0)}</small>
+    ${l.regret_with!=null?`<p class="section-help">${t.technicalComparison}: ${t.lcWith} ${escapeHTML(l.regret_with)} / ${t.lcWithout} ${escapeHTML(l.regret_without??'—')}</p>`:''}${!l.active&&l.retired_reason?`<p class="section-help">${escapeHTML(l.retired_reason)}</p>`:''}</div><button class="lesson-toggle" data-lesson="${Number(l.id)}" data-active="${l.active?0:1}">${l.active?t.lcRetire:t.lcRestore}</button></article>`).join(''):`<p class="learning-empty">${t.noLessons}</p>`);
+  $('lessonLedger').onclick=e=>{const b=e.target&&e.target.dataset&&e.target.dataset.lesson;if(b)act('lesson',{id:Number(b),active:e.target.dataset.active==='1'}).then(()=>renderLearning())};
 }
 async function poll(){
   const epoch=viewEpoch;
@@ -532,7 +772,8 @@ async function poll(){
     const s=await responseJSON(await fetch('/api/state'),I18N[lang].serverUnavailable);
     if(epoch!==viewEpoch||recordingPlayback||requestsInFlight)return;
     pollingError='';render(s);
-    if(pollCount++%5===0&&$('postmortemPanel')&&$('postmortemPanel').open)renderPostmortem();
+    if(pollCount%5===0&&$('postmortemPanel')&&$('postmortemPanel').open)renderPostmortem();
+    pollCount++;
   }catch(e){
     if(epoch===viewEpoch&&!recordingPlayback&&!requestsInFlight){pollingError=I18N[lang].serverUnavailable;updateErrors();$('connection').textContent=pollingError}
   }finally{setTimeout(poll,600)}
@@ -541,9 +782,16 @@ async function poll(){
 window.addEventListener('error',e=>setClientError(I18N[lang].uiError+': '+(e.message||e.error)));
 const postmortemPanel=$('postmortemPanel');
 if(postmortemPanel&&postmortemPanel.addEventListener)postmortemPanel.addEventListener('toggle',()=>{if(postmortemPanel.open)renderPostmortem()});
+const learningPanel=$('learningPanel');
+if(learningPanel&&learningPanel.addEventListener)learningPanel.addEventListener('toggle',()=>{if(learningPanel.open)renderLearning()});
 applyLang();
 // The simulator must stay usable even if the map cannot start at all.
 applyMapMode();poll();
+async function refreshLearning(){
+  try{if(!state?.replay&&!recordingPlayback&&!requestsInFlight)await renderLearning()}
+  finally{setTimeout(refreshLearning,3000)}
+}
+setTimeout(refreshLearning,1000);
 
 function updateWindPreview(){const t=I18N[lang];const x=+$('windX').value,y=+$('windY').value;$('windXValue').textContent=x.toFixed(2);$('windYValue').textContent=y.toFixed(2);$('windStrength').textContent=`${t.windStrength} ${Math.hypot(x,y).toFixed(2)}${Math.hypot(x,y)>=2?t.windStrong:""}`;$('windPending').textContent=windDirty?t.windPreview:t.windApplied;const px=43+Math.sign(x)*Math.sqrt(Math.abs(x)/3)*30,py=43+Math.sign(y)*Math.sqrt(Math.abs(y)/3)*30;$('windArrow').setAttribute('d',`M43 43 L${px} ${py}`);$('windTip').setAttribute('cx',px);$('windTip').setAttribute('cy',py)}
 for(const id of ['windX','windY'])$(id).oninput=()=>{windDirty=true;updateWindPreview()};
