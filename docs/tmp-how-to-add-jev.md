@@ -102,3 +102,17 @@ That is a separate layer. The reflex works without it.
 - env: `OPENROUTER_API_KEY`, `REFLEX_MODE=gated|shadow|off`
 
 HappyRobot workflows to leave alone for v1: Los Panaderos v26 (development) / v29 (staging), Post-mortem v1.
+
+## Sources
+
+Read for this note. Official / API first, then the practical guides and the driving demo we copied patterns from.
+
+- TypeSafe announcement (System One, RLCD, latency/cost, no string generation): [Introducing System One Models & Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev)
+- Practical API (Choice / Score / Noul, speculative fan-out, confidence-gated routing, cascade, retrieve-then-judge, jaggedness / failure modes): [How to Use Jev](https://dev.to/valyuai/how-to-use-jev-a-practical-guide-to-typesafes-system-one-model-g5e)
+- OpenRouter Decisions API, model id `typesafe/jev-1.13`: [Jev 1.13 on OpenRouter](https://openrouter.ai/typesafe/jev-1.13)
+- Latest alias `~typesafe/jev-latest` (do not pin this in production): [Jev Latest on OpenRouter](https://openrouter.ai/~typesafe/jev-latest)
+- Short OpenRouter call shape: [jevai.dev](https://jevai.dev/)
+- Classification-without-chat walkthrough, noul vs choice vs score: [TypeSafe AI and Jev for classification without chat](https://samelogic.com/blog/typesafe-ai-jev-classification)
+- Compact candidate tables, local single-option answers, adaptive cadence, validate-after-Jev: [standardagents/jevpilot](https://github.com/standardagents/jevpilot)
+
+Launch-week demos cited in the DEV guide (not cloned here): [browser-use/jev-ultrafast](https://github.com/browser-use/jev-ultrafast), [RomanSlack/jev-drone](https://github.com/RomanSlack/jev-drone), [awlevin/typesafe-computer-use](https://github.com/awlevin/typesafe-computer-use). Pattern in all of them: code owns the loop and safety; Jev only picks among enumerated candidates.
