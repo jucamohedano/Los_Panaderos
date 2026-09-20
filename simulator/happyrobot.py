@@ -202,7 +202,10 @@ class HappyRobot:
             raise RuntimeError('HappyRobot returned an invalid mission or explanation. Missing mission/reason text.')
 
     def decide(self, payload):
-        result = self.tool('trigger_run', dict(workflow_id=WORKFLOW, environment='development',
+        environment = os.environ.get('HAPPYROBOT_ENVIRONMENT', 'development')
+        if environment not in ('development', 'staging', 'production'):
+            raise ValueError('HAPPYROBOT_ENVIRONMENT must be development, staging or production.')
+        result = self.tool('trigger_run', dict(workflow_id=WORKFLOW, environment=environment,
                           payload=json.dumps(payload), wait=True), timeout=330)
         text = self.text(result)
         run_match = re.search(r'Run ID:\s*([0-9a-f-]{36})', text)

@@ -51,6 +51,7 @@ def signature(sim, event_type='local_observation'):
     """Compact description of the situation as the agent sees it (no hidden fire)."""
     belief = worlds.belief_world(sim)
     fire = belief.fire_points()
+    observed = [(cell['x'], cell['y']) for cell in sim.memory.values() if cell['burning']]
     sources = fire or ([tuple(sim.report)] if sim.called else [])
     strength = math.hypot(*sim.wind)
     districts = {}
@@ -69,7 +70,8 @@ def signature(sim, event_type='local_observation'):
                  idle_extinguishers=sum(v['status'] in idle for v in sim.extinguishers),
                  trucks_mobile=sum(v['status'] not in ('at_station', 'mobilizing') for v in sim.trucks))
     sig = dict(tick=sim.tick, event_type=event_type, wind=[sim.wind[0], sim.wind[1]], wind_strength=round(strength, 2),
-               believed_fire_cells=len(fire), fire_confirmed=bool(fire), fire_centroid=[round(sum(p[0] for p in fire)/len(fire), 1), round(sum(p[1] for p in fire)/len(fire), 1)] if fire else None,
+               believed_fire_cells=len(fire), observed_fire_cells=len(observed), fire_confirmed=bool(observed),
+               fire_centroid=[round(sum(p[0] for p in observed)/len(observed), 1), round(sum(p[1] for p in observed)/len(observed), 1)] if observed else None,
                districts=districts, fleet=fleet)
     return dict(sig, label_version=LABEL_VERSION, labels=situation_labels(sig))
 
@@ -234,8 +236,9 @@ def describe_front(sig):
     else:
         base = f"wind pushes the fire {wind_direction(sig['wind'])} ({sig['wind'][0]},{sig['wind'][1]}): work the {wind_direction(sig['wind'])}-facing leading edge"
     if sig['fire_confirmed'] and sig['fire_centroid']:
-        return f"{base}; {sig['believed_fire_cells']} burning cells observed around ({sig['fire_centroid'][0]},{sig['fire_centroid'][1]})"
-    return f'{base}; fire not yet observed, only the smoke report'
+        count = sig.get('observed_fire_cells', sig['believed_fire_cells'])
+        return f"{base}; {count} burning cells in sensor memory around ({sig['fire_centroid'][0]},{sig['fire_centroid'][1]})"
+    return f'{base}; fire not yet observed by local sensors; forecast fire is inferred from reports'
 
 
 def brief(sig, cases, lessons, forecast_view=None, divergence=None):

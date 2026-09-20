@@ -21,6 +21,13 @@ plan in force forward under the physics; nobody decides inside a branch.
 
 ## New payload fields (Los Panaderos / Despacho Central trigger)
 
+The fleet client defaults to `development`. Set `HAPPYROBOT_ENVIRONMENT=staging`
+to target the staging publication explicitly; this does not publish a workflow or
+change the separate development environment used by experience and Post-mortem.
+The workflow and result-node IDs remain those of Los Panaderos, not the Central
+sandbox. See the [live integration audit](adaptive-live-audit.md) before enabling it:
+v29 completes but still repeats scout tool calls.
+
 Both are inside `world_state` (JSON string) and optional; old versions ignore them.
 
 ```jsonc
