@@ -75,3 +75,8 @@ footer{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px;font-size:1
 #postmortem{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px}#postmortem th,#postmortem td{padding:3px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
 #postmortem tr.gap-execution td{color:#ff8a80}#postmortem tr.gap-judgement td{color:#ffd180}#postmortem tr.gap-information td{color:#80d8ff}#postmortem tr.gap-none td{color:#a5d6a7}#postmortem tr.gap-pending td{color:var(--muted)}
 #postmortem tr.reflection td{font-style:italic;color:#cfd8c8;white-space:pre-wrap}
+#learningEpisodes{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px}#learningEpisodes th,#learningEpisodes td{padding:3px 6px;border-bottom:1px solid var(--line);text-align:left}
+#learningEpisodes tr.gap-judgement td{color:#ffd180}#learningEpisodes tr.gap-none td{color:#a5d6a7}
+#learningCurve{font-size:11px;margin-top:6px}.spark{display:block;margin-top:4px}.trend-down{color:#a5d6a7}.trend-up{color:#ff8a80}
+#experienceUsed,#lessonLedger{font-size:11px;margin-top:6px}#experienceUsed li,#lessonLedger li{margin:4px 0}.lesson-retired{color:var(--muted);text-decoration:line-through}
+.lesson-toggle{font-size:10px;padding:1px 6px;margin-left:4px}.muted{color:var(--muted)}

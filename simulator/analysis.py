@@ -6,7 +6,7 @@ the remaining stages that do not depend on it still run.
 """
 import json
 
-from . import oracle, reflection, telemetry
+from . import experience, oracle, reflection, telemetry
 from .happyrobot import ROOT, WORKFLOW
 from .healing import Healer
 
@@ -39,6 +39,11 @@ class Analyst:
                     evaluation['gap_type'] = 'execution'
             self.box.save_evaluation(decision_id, evaluation)
             out['evaluation'] = evaluation
+            retired = experience.review_lessons(self.box)
+            if retired:
+                out['retired_lessons'] = retired
+                self.log('post-mortem', f"Retired lesson(s) {retired}: decisions shown them regretted more than those without.")
+                self.set_lessons(self.box.active_lessons(5))
         except Exception as exc:
             out['oracle_error'] = str(exc)[:300]
             self.log('system', f'Oracle failed for decision {decision_id}: {exc}'[:300])

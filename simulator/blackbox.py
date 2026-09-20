@@ -26,7 +26,12 @@ CREATE TABLE IF NOT EXISTS lessons(id INTEGER PRIMARY KEY, rule TEXT, norm TEXT 
 CREATE TABLE IF NOT EXISTS patches(id INTEGER PRIMARY KEY, decision_id INTEGER, version_id TEXT, report_path TEXT, created_at REAL);
 CREATE TABLE IF NOT EXISTS forecasts(decision_id INTEGER, kind TEXT, issued_at INTEGER, forecast_json TEXT, PRIMARY KEY(decision_id, kind));
 CREATE TABLE IF NOT EXISTS surprises(id INTEGER PRIMARY KEY, decision_id INTEGER, tick INTEGER, distance REAL, threshold REAL, divergent INTEGER, surprise_json TEXT);
+CREATE TABLE IF NOT EXISTS cases(decision_id INTEGER PRIMARY KEY, incident_id TEXT, signature_json TEXT);
+CREATE TABLE IF NOT EXISTS lesson_uses(decision_id INTEGER, lesson_id INTEGER, PRIMARY KEY(decision_id, lesson_id));
 """
+# Columns added to `lessons` after the first release; applied idempotently to old databases.
+LESSON_COLUMNS = dict(context_json='TEXT', gap_type='TEXT', confidence='REAL', uses='INTEGER DEFAULT 0',
+                      regret_with='REAL', regret_without='REAL', retired_reason='TEXT')
 
 
 class BlackBox:
@@ -38,6 +43,11 @@ class BlackBox:
         self.db.row_factory = sqlite3.Row
         with self.lock:
             self.db.executescript(SCHEMA)
+            present = {r['name'] for r in self.db.execute('PRAGMA table_info(lessons)')}
+            for name, kind in LESSON_COLUMNS.items():
+                if name not in present:
+                    self.db.execute(f'ALTER TABLE lessons ADD COLUMN {name} {kind}')
+            self.db.commit()
 
     def close(self):
         with self.lock:
@@ -143,19 +153,110 @@ class BlackBox:
             rows = self.db.execute('SELECT diagnosis_json FROM reflections').fetchall()
         return [json.loads(r['diagnosis_json']) for r in rows]
 
-    def add_lesson(self, rule, decision_id):
+    def add_lesson(self, rule, decision_id, context=None, gap_type=None, confidence=None):
         norm = ' '.join(str(rule).lower().split())
         if not norm:
-            return
+            return None
         with self.lock:
-            self.db.execute('INSERT OR REPLACE INTO lessons(rule,norm,source_decision_id,created_at,active) VALUES(?,?,?,?,1)',
-                            (str(rule).strip(), norm, decision_id, time.time()))
+            existing = self.db.execute('SELECT id FROM lessons WHERE norm=?', (norm,)).fetchone()
+            if existing:
+                self.db.execute('UPDATE lessons SET rule=?, confidence=MAX(COALESCE(confidence,0),?), context_json=COALESCE(context_json,?) WHERE id=?',
+                                (str(rule).strip(), confidence or 0., json.dumps(context) if context else None, existing['id']))
+                self.db.commit()
+                return existing['id']
+            cur = self.db.execute('INSERT INTO lessons(rule,norm,source_decision_id,created_at,active,context_json,gap_type,confidence,uses) VALUES(?,?,?,?,1,?,?,?,0)',
+                                  (str(rule).strip(), norm, decision_id, time.time(), json.dumps(context) if context else None, gap_type, confidence))
             self.db.commit()
+            return cur.lastrowid
 
     def active_lessons(self, limit=5):
         with self.lock:
             rows = self.db.execute('SELECT rule FROM lessons WHERE active=1 ORDER BY id DESC LIMIT ?', (limit,)).fetchall()
         return [r['rule'] for r in rows]
+
+    def lesson_rows(self, active_only=True):
+        with self.lock:
+            rows = self.db.execute('SELECT * FROM lessons'+(' WHERE active=1' if active_only else '')+' ORDER BY id DESC').fetchall()
+        return [dict(r) for r in rows]
+
+    def lesson_ids_for(self, rules):
+        norms = [' '.join(str(r).lower().split()) for r in rules or []]
+        if not norms:
+            return []
+        with self.lock:
+            rows = self.db.execute(f"SELECT id FROM lessons WHERE norm IN ({','.join('?'*len(norms))})", norms).fetchall()
+        return [r['id'] for r in rows]
+
+    def record_lesson_uses(self, decision_id, lesson_ids):
+        if not lesson_ids:
+            return
+        with self.lock:
+            self.db.executemany('INSERT OR IGNORE INTO lesson_uses VALUES(?,?)', [(decision_id, i) for i in lesson_ids])
+            self.db.execute(f"UPDATE lessons SET uses=uses+1 WHERE id IN ({','.join('?'*len(lesson_ids))})", lesson_ids)
+            self.db.commit()
+
+    def lesson_regrets(self, lesson_id):
+        """Regrets of graded decisions that were shown the lesson, and of those decided after it existed without seeing it."""
+        with self.lock:
+            shown = self.db.execute('SELECT e.result_json FROM lesson_uses u JOIN evaluations e ON e.decision_id=u.decision_id WHERE u.lesson_id=?', (lesson_id,)).fetchall()
+            hidden = self.db.execute('SELECT e.result_json FROM decisions d JOIN evaluations e ON e.decision_id=d.id JOIN lessons l ON l.id=? '
+                                     'WHERE d.created_at>=l.created_at AND d.id NOT IN (SELECT decision_id FROM lesson_uses WHERE lesson_id=?)', (lesson_id, lesson_id)).fetchall()
+        return ([json.loads(r['result_json']).get('regret') for r in shown], [json.loads(r['result_json']).get('regret') for r in hidden])
+
+    def set_lesson_credit(self, lesson_id, credit):
+        with self.lock:
+            self.db.execute('UPDATE lessons SET regret_with=?, regret_without=? WHERE id=?', (credit.get('regret_with'), credit.get('regret_without'), lesson_id))
+            self.db.commit()
+
+    def retire_lesson(self, lesson_id, reason):
+        with self.lock:
+            self.db.execute('UPDATE lessons SET active=0, retired_reason=? WHERE id=?', (reason[:300], lesson_id))
+            self.db.commit()
+
+    def restore_lesson(self, lesson_id):
+        with self.lock:
+            self.db.execute('UPDATE lessons SET active=1, retired_reason=NULL WHERE id=?', (lesson_id,))
+            self.db.commit()
+
+    def save_case(self, decision_id, incident_id, signature):
+        with self.lock:
+            self.db.execute('INSERT OR REPLACE INTO cases VALUES(?,?,?)', (decision_id, incident_id, json.dumps(signature)))
+            self.db.commit()
+
+    def case_signature(self, decision_id):
+        with self.lock:
+            row = self.db.execute('SELECT signature_json FROM cases WHERE decision_id=?', (decision_id,)).fetchone()
+        return json.loads(row['signature_json']) if row else None
+
+    def cases(self, exclude_incident=None):
+        """Graded decisions with a situation signature; the current incident is excluded so no case grades itself."""
+        with self.lock:
+            rows = self.db.execute(
+                'SELECT d.id,d.incident_id,d.tick,d.event_type,d.decision_json,d.outcome_json,e.result_json,r.diagnosis_json,c.signature_json '
+                'FROM cases c JOIN decisions d ON d.id=c.decision_id JOIN evaluations e ON e.decision_id=d.id '
+                'LEFT JOIN reflections r ON r.decision_id=d.id WHERE d.status=? AND (? IS NULL OR d.incident_id!=?) ORDER BY d.id',
+                ('applied', exclude_incident, exclude_incident)).fetchall()
+        return [dict(r) for r in rows]
+
+    def episodes(self):
+        """One row per incident, oldest first, with what is needed for a learning curve."""
+        with self.lock:
+            incidents = self.db.execute('SELECT incident_id, MIN(created_at) AS started_at, MIN(id) AS first_id, COUNT(*) AS decisions FROM decisions GROUP BY incident_id ORDER BY started_at').fetchall()
+            out = []
+            for inc in incidents:
+                rows = self.db.execute('SELECT d.id,d.outcome_json,e.result_json FROM decisions d LEFT JOIN evaluations e ON e.decision_id=d.id WHERE d.incident_id=? ORDER BY d.id', (inc['incident_id'],)).fetchall()
+                evals = [json.loads(r['result_json']) for r in rows if r['result_json']]
+                outcomes = [json.loads(r['outcome_json']) for r in rows if r['outcome_json']]
+                sur = self.db.execute('SELECT s.distance,s.divergent FROM surprises s JOIN decisions d ON d.id=s.decision_id WHERE d.incident_id=?', (inc['incident_id'],)).fetchall()
+                shown = self.db.execute('SELECT COUNT(DISTINCT u.lesson_id) AS n FROM lesson_uses u JOIN decisions d ON d.id=u.decision_id WHERE d.incident_id=?', (inc['incident_id'],)).fetchone()['n']
+                before = self.db.execute('SELECT COUNT(*) AS n FROM cases c JOIN evaluations e ON e.decision_id=c.decision_id WHERE c.decision_id<?', (inc['first_id'],)).fetchone()['n']
+                out.append(dict(incident_id=inc['incident_id'], started_at=inc['started_at'], decisions=inc['decisions'],
+                                regrets=[e.get('regret') for e in evals],
+                                judgement_gaps=sum(e.get('gap_type') == 'judgement' for e in evals), execution_gaps=sum(e.get('gap_type') == 'execution' for e in evals),
+                                surprise_checks=len(sur), divergences=sum(s['divergent'] for s in sur),
+                                mean_surprise=round(sum(s['distance'] for s in sur)/len(sur), 4) if sur else None,
+                                people_burnt=sum(o.get('people_burnt', 0) for o in outcomes), cases_before=before, lessons_shown=shown))
+        return out
 
     def save_patch(self, decision_id, version_id, report_path):
         with self.lock:

@@ -352,3 +352,31 @@ test('unknown status and radio-source names do not read inherited dictionary pro
   assert.doesNotThrow(() => h.run('render(input)'));
   assert.equal(h.elements.get('trail').children[0].children[1].textContent, 'CONSTRUCTOR');
 });
+
+test('learning panel renders the regret curve, the experience sent and the lesson ledger; retire posts an action', async () => {
+  const h = await harness();
+  assert.match(html, /id="learningPanel"/); assert.match(html, /id="learningEpisodes"/);
+  const tbody = new Element('tbody');
+  h.elements.get('learningEpisodes').querySelector = selector => selector === 'tbody' ? tbody : null;
+  const learning = {
+    episodes: [{incident_id: 'aaaaaaaa-1', decisions: 3, graded: 3, mean_regret: 100, judgement_gaps: 0, execution_gaps: 0, surprise_checks: 2, divergences: 1, cases_available: 0, lessons_shown: 0},
+      {incident_id: 'bbbbbbbb-2', decisions: 3, graded: 3, mean_regret: 0, judgement_gaps: 0, execution_gaps: 0, surprise_checks: 3, divergences: 0, cases_available: 3, lessons_shown: 1},
+      {incident_id: 'cccccccc-3', decisions: 1, graded: 0, mean_regret: null, judgement_gaps: 0, execution_gaps: 0, surprise_checks: 0, divergences: 0, cases_available: 6, lessons_shown: 1}],
+    experience: {decision_id: 7, cases: [{decision_id: 1, similarity_distance: 0.08, tick: 2, event_type: 'farmer_call', regret: 100, gap_type: 'none', did: ['drone-1: hold'], oracle_preferred: ['scout-1: evacuate_farm farm'], lesson: 'Warn <b>farm</b> first'}], lessons: []},
+    lessons: [{id: 1, rule: 'Warn the downwind farm before scouting.', active: 1, uses: 4, regret_with: 0, regret_without: 100},
+      {id: 2, rule: 'Old rule', active: 0, uses: 5, regret_with: 120, regret_without: 10, retired_reason: 'regret with lesson 120 vs without 10 over 5 decisions'}]};
+  h.handler = request => request.url === '/api/learning' ? response(learning) : response(h.server);
+  await h.run('renderLearning()');
+  assert.match(h.elements.get('learningCurve').innerHTML, /primer episodio 100 → último 0/); assert.match(h.elements.get('learningCurve').innerHTML, /trend-down/); assert.match(h.elements.get('learningCurve').innerHTML, /<svg/);
+  assert.equal((tbody.innerHTML.match(/<tr/g) || []).length, 2); assert.match(tbody.innerHTML, /aaaaaaaa/); assert.doesNotMatch(tbody.innerHTML, /cccccccc/);
+  assert.match(h.elements.get('experienceUsed').innerHTML, /d=0.08 · t=2 · farmer_call · regret 100/); assert.match(h.elements.get('experienceUsed').innerHTML, /evacuate_farm/); assert.match(h.elements.get('experienceUsed').innerHTML, /&lt;b&gt;farm&lt;\/b&gt;/);
+  assert.match(h.elements.get('lessonLedger').innerHTML, /lesson-retired/); assert.match(h.elements.get('lessonLedger').innerHTML, /regret con 0 \/ sin 100/); assert.match(h.elements.get('lessonLedger').innerHTML, /data-lesson="1" data-active="0"/);
+  h.handler = request => request.url === '/api/learning' ? response(learning) : response(h.server);
+  h.elements.get('lessonLedger').onclick({target: {dataset: {lesson: '2', active: '1'}}});
+  await flush();
+  const action = h.requests.find(request => request.body?.action === 'lesson');
+  assert.deepEqual(action.body, {action: 'lesson', id: 2, active: true});
+  h.handler = request => request.url === '/api/learning' ? response({episodes: [], lessons: [], experience: null}) : response(h.server);
+  await h.run('renderLearning()');
+  assert.match(h.elements.get('learningCurve').textContent, /Sin episodios/); assert.equal(tbody.innerHTML, ''); assert.equal(h.elements.get('experienceUsed').innerHTML, '');
+});

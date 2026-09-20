@@ -14,7 +14,7 @@ import re
 import time
 from pathlib import Path
 
-from . import oracle
+from . import experience, oracle
 from .happyrobot import HappyRobot
 
 ANNOTATION = dict(execution='critical', judgement='incorrect', information='correct', none='correct', unknown='correct')
@@ -80,15 +80,17 @@ class Healer:
     def tier1(self, decision_id, run_id, diagnosis, evaluation):
         gap = diagnosis.get('gap_type') or evaluation.get('gap_type') or 'unknown'
         rule = (diagnosis.get('proposed_rule') or '').strip()
-        if rule and gap in ('execution', 'judgement'):
-            self.box.add_lesson(rule, decision_id)
+        confidence = float(diagnosis.get('confidence') or 0)
+        gated = bool(rule) and gap in ('execution', 'judgement') and confidence >= experience.LESSON_CONFIDENCE
+        if gated:
+            self.box.add_lesson(rule, decision_id, context=self.box.case_signature(decision_id), gap_type=gap, confidence=confidence)
         annotation = ANNOTATION.get(gap, 'correct')
         if run_id:
             args = dict(action='mark', run_id=run_id, annotation=annotation)
             if annotation != 'correct':
                 args['correction'] = f"[{gap}] {diagnosis.get('root_cause', '')}"[:1000]
             self.robot.tool('monitor_runs', args)
-        return dict(annotation=annotation, lesson=rule or None)
+        return dict(annotation=annotation, lesson=rule if gated else None, lesson_gated_out=bool(rule) and not gated)
 
     # Tier 2 --------------------------------------------------------------
     @staticmethod

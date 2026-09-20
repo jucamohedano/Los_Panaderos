@@ -15,7 +15,7 @@ from .blackbox import BlackBox
 from .engine import Simulation
 from .geo import PLACE
 from .happyrobot import HappyRobot, EDITOR
-from . import worlds
+from . import experience, worlds
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / '.runtime'
@@ -73,6 +73,9 @@ class Controller:
         self.forecast_thread = None
         self.forecast_before = None
         self.surprises = []
+        # Experience replay: the situation signature and retrieved cases/lessons shown to the last decision.
+        self.experience = None
+        self.experience_before = None
         threading.Thread(target=self._clock, daemon=True).start()
 
     def _set_lessons(self, lessons):
@@ -201,7 +204,19 @@ class Controller:
                         frame_count=len(self.frames),replay=self.cursor is not None,live_tick=self.sim.tick,
                         connected=self.robot.connected, error=self.error, workflow_url=EDITOR,
                         workflow_calls=self.calls, latency=self.latency, run_evidence=self.run_evidence,
-                        forecast=self._forecast_view(), divergence=self.sim.divergence, surprises=self.surprises[-12:])
+                        forecast=self._forecast_view(), divergence=self.sim.divergence, surprises=self.surprises[-12:],
+                        experience=self.experience)
+
+    def _experience_context(self, world, event_type):
+        """Similar graded past decisions and the lessons relevant to this situation, computed off the lock."""
+        sig = experience.signature(world, event_type)
+        return dict(signature=sig, cases=experience.retrieve(self.box, sig, exclude_incident=world.incident_id),
+                    lessons=experience.relevant_lessons(self.box, sig))
+
+    def learning(self):
+        with self.lock:
+            shown = self.experience
+        return dict(episodes=experience.learning_curve(self.box), lessons=self.box.lesson_rows(active_only=False), experience=shown)
 
     def _forecast_view(self):
         if not self.forecast:
@@ -233,7 +248,9 @@ class Controller:
     def _decide(self, payload, tick, world=None):
         start = time.monotonic()
         retry = False
-        before = self.forecast_before if payload.get('event_type') == 'command_rejected' else None
+        corrective = payload.get('event_type') == 'command_rejected'
+        before = self.forecast_before if corrective else None
+        context = self.experience_before if corrective else None
         try:
             # What the believed world does under current orders, so the agent plans against futures, not a snapshot.
             if world is not None:
@@ -241,10 +258,21 @@ class Controller:
                     before = worlds.forecast(world)
                 except Exception as exc:
                     self._log('forecast', f'Pre-decision forecast skipped: {str(exc)[:200]}')
-            if before:
+                try:
+                    context = self._experience_context(world, payload.get('event_type'))
+                except Exception as exc:
+                    self._log('experience', f'Case retrieval skipped: {str(exc)[:200]}')
+            if before or context:
                 state = json.loads(payload['world_state'])
-                state['possible_worlds'] = worlds.agent_view(before)
+                if before:
+                    state['possible_worlds'] = worlds.agent_view(before)
+                if context:
+                    state['similar_cases'] = context['cases']
+                    state['lessons_learned'] = [l['rule'] for l in context['lessons']]
                 payload['world_state'] = json.dumps(state)
+            if context and context['cases']:
+                self._log('experience', f"{len(context['cases'])} similar past decision(s) retrieved (closest {context['cases'][0]['similarity_distance']}, regret {context['cases'][0]['regret']}); "
+                                        f"{len(context['lessons'])} lesson(s) relevant")
             decision, evidence = self.robot.decide(payload)
             with self.lock:
                 if self.reset_pending:return
@@ -254,6 +282,10 @@ class Controller:
                 decision_id = self._record(payload, decision, 'pending')
                 if before:
                     self.box.save_forecast(decision_id, 'before', before)
+                if context:
+                    self.box.save_case(decision_id, payload['incident_id'], context['signature'])
+                    self.box.record_lesson_uses(decision_id, [l['id'] for l in context['lessons']])
+                    self.experience = dict(context, decision_id=decision_id)
                 self.sim.divergence = None
                 try:
                     self.sim.apply(decision,payload['event_id'],payload['incident_id'],tick)
@@ -290,6 +322,7 @@ class Controller:
             with self.lock:
                 self.busy = False
                 self.forecast_before = before if retry else None
+                self.experience_before = context if retry else None
                 if self.reset_pending:
                     self.action('reset',{})
                 else:
@@ -351,6 +384,16 @@ class Controller:
                 self.forecast_consumed = False
                 self.forecast_before = None
                 self.surprises = []
+                self.experience = None
+                self.experience_before = None
+            elif action == 'lesson':
+                lesson_id, active = int(data.get('id')), bool(data.get('active', True))
+                if active:
+                    self.box.restore_lesson(lesson_id)
+                else:
+                    self.box.retire_lesson(lesson_id, 'retired by operator')
+                self.sim.lessons = self.box.active_lessons(5)
+                self.sim.log('operator', f"Lesson {lesson_id} {'restored' if active else 'retired'}.")
             elif action == 'fleet':
                 self.sim.configure_fleet(data.get('count'),**data.get('counts',{}))
                 self.sim.observe()
@@ -423,6 +466,8 @@ def serve(port=8765):
                 self.reply(200,dict(format='los-panaderos-recording-v1',frames=frames))
             elif path == '/api/state':
                 self.reply(200, controller.state())
+            elif path == '/api/learning':
+                self.send_json(CONTROLLER.learning())
             elif path == '/api/postmortem':
                 self.reply(200, controller.postmortem())
             elif path == '/api/config':

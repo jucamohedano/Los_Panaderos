@@ -168,6 +168,13 @@
     <table id="postmortem"><thead><tr><th>t</th><th data-i18n="pmActual">Real</th><th data-i18n="pmBest">Mejor</th><th data-i18n="pmRegret">Regret</th><th data-i18n="pmGap">Brecha</th><th>s</th><th data-i18n="pmLoop">Bucle</th></tr></thead><tbody></tbody></table>
     <div id="patches"></div>
   </details>
+  <details id="learningPanel"><summary id="learningLbl" data-i18n="learning">Aprendizaje · experiencia y curva de regret</summary>
+    <p class="postmortem-note" data-i18n="learningNote">Antes de cada decisión se recuperan los casos pasados más parecidos (por distancia de situación, sin fuego oculto) y las lecciones relevantes; son evidencia, no órdenes. Las lecciones se acreditan por el regret de las decisiones que las vieron y se retiran si no ayudan.</p>
+    <div id="learningCurve"></div>
+    <table id="learningEpisodes"><thead><tr><th>#</th><th data-i18n="lcIncident">Incidente</th><th data-i18n="lcDecisions">Decisiones</th><th data-i18n="lcRegret">Regret medio</th><th data-i18n="lcGaps">Brechas</th><th data-i18n="lcDiverg">Divergencias</th><th data-i18n="lcCases">Casos previos</th><th data-i18n="lcLessons">Lecciones vistas</th></tr></thead><tbody></tbody></table>
+    <div id="experienceUsed"></div>
+    <div id="lessonLedger"></div>
+  </details>
   <a id="workflow" target="_blank" rel="noopener" data-i18n="workflow">Flujo</a>
   <div class="attribution"><a href="https://brunete.org/nuestro-pueblo/datos-estadisticos/" data-i18n="censusLink">Ayuntamiento de Brunete · padrón 2025</a><span data-i18n="censusAssumptions">Distribución por distritos estimada; ocupación de granja y refugios supuestos.</span><span data-i18n="pnoaIntro">Ilustración adaptada de una referencia</span> <a href="https://pnoa.ign.es/pnoa-imagen/ortofotos-pnoa-maxima-actualidad">PNOA</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0 scne.es</a></div>
 </footer>

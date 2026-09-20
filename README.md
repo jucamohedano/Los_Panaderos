@@ -92,6 +92,22 @@ decision requested ──► belief world (sensor memory, delayed satellite, smo
 
 `simulator/worlds.py` forks the world the agents can see (never the ground truth), runs it under the current orders with different random seeds, and summarises the ensemble: dispersion, expected burning cells, per-cell burn probability, and for each district the probability of fire within 8 cells and the distribution of population outcomes. The same world distance (tolerant fire-front and burned masks, population status ranks, district threat, fleet displacement) that measures ensemble spread also measures how far the observed world has drifted from the forecast; when the drift exceeds what the ensemble itself explains, the controller logs why (`what_changed`: wind, an unexpected front, a district newly threatened) and raises `forecast_divergence` so the next HappyRobot decision names the invalidated assumption. Hidden fire the sensors have not reached can never trigger it. Forecasts and surprise checks are stored next to the decision in the black box and appear in the **Futuros** panel and the post-mortem view. Frequencies are model-consistent, not an operational fire forecast.
 
+## Learning from experience: case memory, lesson credit, learning curve
+
+```text
+decision requested ──► situation signature (belief only: wind, believed fire, per-district status/distance/downwind, idle fleet, minutes since alarm)
+                        │  k=3 nearest graded past decisions by signature distance → world_state.similar_cases
+                        │  active lessons ranked by the situation they were learned in → world_state.lessons_learned
+ decision recorded ──► cases table (signature) + lesson_uses (which lessons this decision saw)
+ oracle graded     ──► lesson credit: regret of decisions shown the lesson vs not shown → retire when it hurts
+```
+
+The black box is the replay buffer; the policy is a frozen language model, so experience feeds back *in context* instead of by gradient. `simulator/experience.py` builds a small, interpretable signature of the situation as the agent sees it (hidden fire excluded) weighted toward what matters in the first minutes — who is unwarned and downwind, what is idle, whether the fire is confirmed — and retrieves the closest past decisions that the oracle has already graded. Each case tells the agent what was done, what the oracle preferred, the regret, the outcome and any lesson drawn from it; cases from the current incident are excluded so no decision grades itself, and cases further than `MAX_CASE_DISTANCE` are not shown. Cases are evidence, not orders: current observations and telemetry override them.
+
+Lessons are no longer "the five newest rules": tier 1 only stores a proposed rule when the reflection's confidence is ≥ 0.5, tags it with the signature it was learned in, and the payload carries the lessons most relevant to the present situation. Every decision records which lessons it saw; once the oracle grades it, `review_lessons` compares regret with and without each lesson and retires (reversibly) those that made things worse after at least three uses. The **Aprendizaje** panel shows the regret curve per incident, the experience sent with the last decision and the lesson ledger with credit and retire/restore controls; `/api/learning` exposes the same data.
+
+`python3 -m simulator.episodes --episodes 3 --fresh` replays the same scenario headless with a case-following mock agent (adopt the oracle's plan from a close case when it is still valid, otherwise hold) and prints the curve. On the default scenario the first episode regrets 100 at every decision and the following ones 0 — the value of retrieval alone, independent of any model. A shared HappyRobot Twin table would let several machines pool cases; on hackspainteam9 the Twin database is currently not enabled, so the SQLite black box is the store.
+
 ## Verify
 
 ```sh
@@ -100,7 +116,7 @@ node --test tests/test_dashboard.cjs
 node --check simulator/static/app.js
 ```
 
-Tests cover spread timing, wind, containment, local knowledge, satellite latency, evacuation, blocked routes, stale/invalid commands, immutable replay, MCP parsing, the black box, telemetry signals, the oracle, the reflection client, the healing tiers, the reference loop case, the belief-world ensemble and forecast divergence. Live HappyRobot calls are mocked in tests. Restart the server after Python changes; no hot reload.
+Tests cover spread timing, wind, containment, local knowledge, satellite latency, evacuation, blocked routes, stale/invalid commands, immutable replay, MCP parsing, the black box, telemetry signals, the oracle, the reflection client, the healing tiers, the reference loop case, the belief-world ensemble and forecast divergence, situation signatures, case retrieval, lesson credit and the episode harness. Live HappyRobot calls are mocked in tests. Restart the server after Python changes; no hot reload.
 
 [Recorded validation cases](docs/demo-validation.md) include the real HappyRobot run IDs and physical outcomes.
 

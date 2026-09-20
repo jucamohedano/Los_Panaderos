@@ -250,6 +250,7 @@ censusLink:'Ayuntamiento de Brunete · padrón 2025',censusAssumptions:'Distribu
 fleetTitle:'Medios de respuesta',fleetTrucks:'camiones',fleetScouts:'exploradores',fleetExtinguishers:'drones Squirtle',scoutsShort:'exploración',extinguishersShort:'Squirtle',applyFleet:'Aplicar flota',fleetHelp:'Configura antes de la ignición. Reinicia para cambiar los medios; los recuentos se conservan.',noVehicles:'Sin vehículos',addFire:'Añadir fuego en el mapa',addFireArmed:'Añadir fuego · ACTIVADO',addFireHint:'Modo ignición activado: clic en el mapa. Durante la deliberación, el fuego queda en cola.',queuedFires:'igniciones en cola',
 forecast:'Futuros · mundos posibles',forecastNote:'Ensamble de rollouts del mundo tal como el sistema lo cree (sin fuego oculto). Si lo observado contradice el pronóstico, se emite forecast_divergence y el agente replanifica. Frecuencias del modelo, no predicción operativa.',fcDistrict:'Distrito',fcThreat:'P(fuego a ≤8 celdas)',fcOutcome:'Resultado más probable',fcNone:'Sin pronóstico todavía: se calcula tras cada decisión.',fcSummary:(f)=>`Emitido t=${f.issued_at} · horizonte t+${f.horizon} · ${f.branches} ramas · dispersión ${f.dispersion} · ~${f.expected_burning_cells} celdas ardiendo esperadas (${f.believed_burning_cells} creídas ahora)`,fcConsumed:'Pronóstico invalidado; esperando nueva decisión.',fcDiverged:(d)=>`Divergencia en t=${d.tick}: distancia ${d.distance} > umbral ${d.threshold}.`,fcChecks:'Comprobaciones',fcHeld:'coincide',fcBroke:'DIVERGE',
 postmortem:'Post-mortem · oráculo y reflexión',postmortemNote:'El oráculo evalúa con retrospectiva (conoce el fuego oculto). Nunca decide; solo mide. Promover un parche es humano.',pmActual:'Real',pmBest:'Mejor',pmRegret:'Regret',pmGap:'Brecha',pmLoop:'Bucle',pmLessons:'Lecciones activas (se envían al agente)',pmNone:'Sin decisiones analizadas todavía.',pmPending:'analizando…',pmPatches:'Parches propuestos (no promovidos)',
+learning:'Aprendizaje · experiencia y curva de regret',learningNote:'Antes de cada decisión se recuperan los casos pasados más parecidos (por distancia de situación, sin fuego oculto) y las lecciones relevantes; son evidencia, no órdenes. Las lecciones se acreditan por el regret de las decisiones que las vieron y se retiran si no ayudan.',lcIncident:'Incidente',lcDecisions:'Decisiones',lcRegret:'Regret medio',lcGaps:'Brechas',lcDiverg:'Divergencias',lcCases:'Casos previos',lcLessons:'Lecciones vistas',lcNone:'Sin episodios evaluados todavía.',lcCurve:'Regret medio por episodio',lcTrend:(a,b)=>`primer episodio ${a} → último ${b}`,lcUsed:'Experiencia enviada en la última decisión',lcNoCases:'Sin casos parecidos (memoria vacía o situación nueva).',lcCase:(c)=>`d=${c.similarity_distance} · t=${c.tick} · ${c.event_type} · regret ${c.regret??'—'}${c.gap_type?` (${c.gap_type})`:''}`,lcDid:'Hizo',lcOracle:'Oráculo prefería',lcLedger:'Libro de lecciones',lcUses:'usos',lcWith:'regret con',lcWithout:'sin',lcRetire:'Retirar',lcRestore:'Restaurar',lcRetired:'retirada',
 sources:{central:'Central',edge:'Agente dron',drone:'Dron','drone → truck':'Dron → Dotación','scout agent':'Agente explorador','scout → central':'Explorador → Central','drone-1':'Squirtle',system:'Sistema',simulation:'Simulación',dispatch:'Despacho',autopilot:'Navegación',weather:'Meteorología',farmer:'Avisante',people:'Población','post-mortem':'Post-mortem',forecast:'Futuros'}},
 en:{eyebrow:'OPERATIONS CENTER · CECOP',subhead:'CIVIL PROTECTION · WILDLAND RESPONSE',setup:'Set up incident',hint:'Configure the fleet before starting. Click the map for the origin, ignite, apply wind and send the smoke report. During the incident, enable Add fire for new ignitions; they queue while agents deliberate.',truth:'Actual situation',truthTag:'BRUNETE · ILLUSTRATED TERRAIN',truthCesiumTag:'BRUNETE · ILLUSTRATED TERRAIN',truthIllustratedTag:'BRUNETE · ILLUSTRATED TERRAIN',belief:'What the system sees',beliefTag:'SENSORS + DELAYED SATELLITE',mission:'MISSION / ORDER',trail:'COMMUNICATIONS',inspect:'HappyRobot technical record',explain:'HappyRobot chooses scouting, containment or district warnings. Illustrated terrain, simulated fire and satellite. Not an operational forecast.',footerNote:'HappyRobot decides. Illustration inspired by Brunete; educational grid, not Rothermel/Catastro. Clock pauses during deliberation; replay never calls AI.',workflow:'Workflow',watch:'Watch',active:'Active',busy:'AGENTS DELIBERATING · CLOCK PAUSED',live:'Live',paused:'Paused',replay:'Replay',mapFallback:'Non-georeferenced illustration · approximate scale',firmsDown:'FIRMS unavailable',
 kClock:'Clock',kThreat:'Threat',kPeople:'PEOPLE AT RISK',kDrone:'Drones',kCrew:'Trucks',kAgents:'Agents',
@@ -277,6 +278,7 @@ censusLink:'Brunete Town Council · 2025 census',censusAssumptions:'Estimated di
 fleetTitle:'Response assets',fleetTrucks:'trucks',fleetScouts:'scouts',fleetExtinguishers:'Squirtle drones',scoutsShort:'scout',extinguishersShort:'Squirtle',applyFleet:'Apply fleet',fleetHelp:'Configure before ignition. Reset to change assets; counts are preserved.',noVehicles:'No vehicles',addFire:'Add fire on map',addFireArmed:'Add fire · ON',addFireHint:'Ignition mode on: click the map. Fires are queued during deliberation.',queuedFires:'queued ignitions',
 forecast:'Futures · possible worlds',forecastNote:'Ensemble of rollouts of the world as the system believes it (hidden fire excluded). When observations contradict the forecast, forecast_divergence is raised and the agent replans. Model frequencies, not an operational forecast.',fcDistrict:'District',fcThreat:'P(fire within 8 cells)',fcOutcome:'Most likely outcome',fcNone:'No forecast yet: one is computed after each decision.',fcSummary:(f)=>`Issued t=${f.issued_at} · horizon t+${f.horizon} · ${f.branches} branches · dispersion ${f.dispersion} · ~${f.expected_burning_cells} burning cells expected (${f.believed_burning_cells} believed now)`,fcConsumed:'Forecast invalidated; awaiting a new decision.',fcDiverged:(d)=>`Divergence at t=${d.tick}: distance ${d.distance} > threshold ${d.threshold}.`,fcChecks:'Checks',fcHeld:'holds',fcBroke:'DIVERGED',
 postmortem:'Post-mortem · oracle and reflection',postmortemNote:'The oracle grades with hindsight (it knows hidden fire). It never decides; it only measures. Promoting a patch is human.',pmActual:'Actual',pmBest:'Best',pmRegret:'Regret',pmGap:'Gap',pmLoop:'Loop',pmLessons:'Active lessons (sent to the agent)',pmNone:'No analysed decisions yet.',pmPending:'analysing…',pmPatches:'Proposed patches (not promoted)',
+learning:'Learning · experience and regret curve',learningNote:'Before each decision the most similar past cases (by situation distance, hidden fire excluded) and the relevant lessons are retrieved; they are evidence, not orders. Lessons are credited with the regret of the decisions that saw them and retired when they do not help.',lcIncident:'Incident',lcDecisions:'Decisions',lcRegret:'Mean regret',lcGaps:'Gaps',lcDiverg:'Divergences',lcCases:'Prior cases',lcLessons:'Lessons shown',lcNone:'No graded episodes yet.',lcCurve:'Mean regret per episode',lcTrend:(a,b)=>`first episode ${a} → latest ${b}`,lcUsed:'Experience sent with the last decision',lcNoCases:'No similar cases (empty memory or a new situation).',lcCase:(c)=>`d=${c.similarity_distance} · t=${c.tick} · ${c.event_type} · regret ${c.regret??'—'}${c.gap_type?` (${c.gap_type})`:''}`,lcDid:'Did',lcOracle:'Oracle preferred',lcLedger:'Lesson ledger',lcUses:'uses',lcWith:'regret with',lcWithout:'without',lcRetire:'Retire',lcRestore:'Restore',lcRetired:'retired',
 sources:{central:'Central',edge:'Drone agent',drone:'Drone','drone → truck':'Drone → Engine','scout agent':'Scout agent','scout → central':'Scout → Central','drone-1':'Squirtle',system:'System',simulation:'Simulation',dispatch:'Dispatch',autopilot:'Navigation',weather:'Weather',farmer:'Caller',people:'People','post-mortem':'Post-mortem',forecast:'Futures'}}
 };
 const STATUS_I18N={
@@ -543,6 +545,29 @@ async function renderPostmortem(){
   }).join(''):`<tr><td colspan="7">${t.pmNone}</td></tr>`;
   $('patches').innerHTML=p.patches&&p.patches.length?`<strong>${t.pmPatches}</strong><ul>${p.patches.map(x=>`<li><code>${escapeHTML(x.version_id)}</code> · ${escapeHTML(x.report_path)}</li>`).join('')}</ul>`:'';
 }
+// Learning panel: per-incident regret curve, the experience the last decision saw, and the lesson ledger with credit.
+function sparkline(values,w=240,h=48){
+  const pts=values.map(v=>v??0),max=Math.max(1,...pts),n=pts.length;
+  if(!n)return '';
+  const xy=pts.map((v,i)=>[n>1?i*(w-8)/(n-1)+4:w/2,h-4-(v/max)*(h-8)]);
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"><polyline fill="none" stroke="#ffb74d" stroke-width="2" points="${xy.map(p=>p.map(x=>x.toFixed(1)).join(',')).join(' ')}"/>${xy.map((p,i)=>`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="${pts[i]>0?'#ff8a80':'#a5d6a7'}"><title>${pts[i]}</title></circle>`).join('')}</svg>`;
+}
+async function renderLearning(){
+  const t=I18N[lang];let p;
+  try{p=await responseJSON(await fetch('/api/learning'),t.serverUnavailable)}catch(e){return}
+  const body=$('learningEpisodes')?.querySelector?.('tbody');
+  if(!$('learningCurve')||!body)return;
+  const eps=(p.episodes||[]).filter(e=>e.graded>0);
+  if(eps.length){const first=eps[0].mean_regret,last=eps[eps.length-1].mean_regret;
+    $('learningCurve').innerHTML=`<strong>${t.lcCurve}</strong> <span class="${last<first?'trend-down':last>first?'trend-up':''}">${t.lcTrend(first,last)}</span><br>${sparkline(eps.map(e=>e.mean_regret))}`}
+  else $('learningCurve').textContent=t.lcNone;
+  body.innerHTML=eps.map((e,i)=>`<tr class="${e.mean_regret>0?'gap-judgement':'gap-none'}"><td>${i+1}</td><td>${escapeHTML(e.incident_id.slice(0,8))}</td><td>${e.decisions} (${e.graded})</td><td>${e.mean_regret}</td><td>${e.judgement_gaps+e.execution_gaps}</td><td>${e.divergences}/${e.surprise_checks}</td><td>${e.cases_available}</td><td>${e.lessons_shown}</td></tr>`).join('');
+  const x=p.experience;
+  $('experienceUsed').innerHTML=x?`<strong>${t.lcUsed}</strong>`+((x.cases||[]).length?`<ul>${x.cases.map(c=>`<li>${escapeHTML(t.lcCase(c))}<br><small>${t.lcDid}: ${escapeHTML((c.did||[]).join(' · ')||'—')}${c.oracle_preferred?` · ${t.lcOracle}: ${escapeHTML(c.oracle_preferred.join(' · '))}`:''}${c.lesson?`<br><em>${escapeHTML(c.lesson)}</em>`:''}</small></li>`).join('')}</ul>`:` <span class="muted">${t.lcNoCases}</span>`):'';
+  const lessons=p.lessons||[];
+  $('lessonLedger').innerHTML=lessons.length?`<strong>${t.lcLedger}</strong><ul>${lessons.map(l=>`<li class="${l.active?'':'lesson-retired'}">${escapeHTML(l.rule)} <small>· ${l.uses||0} ${t.lcUses}${l.regret_with!=null?` · ${t.lcWith} ${l.regret_with} / ${t.lcWithout} ${l.regret_without??'—'}`:''}${l.active?'':` · ${t.lcRetired}${l.retired_reason?`: ${escapeHTML(l.retired_reason)}`:''}`}</small> <button class="lesson-toggle" data-lesson="${l.id}" data-active="${l.active?0:1}">${l.active?t.lcRetire:t.lcRestore}</button></li>`).join('')}</ul>`:'';
+  $('lessonLedger').onclick=e=>{const b=e.target&&e.target.dataset&&e.target.dataset.lesson;if(b)act('lesson',{id:Number(b),active:e.target.dataset.active==='1'}).then(()=>renderLearning())};
+}
 async function poll(){
   const epoch=viewEpoch;
   try{
@@ -550,7 +575,8 @@ async function poll(){
     const s=await responseJSON(await fetch('/api/state'),I18N[lang].serverUnavailable);
     if(epoch!==viewEpoch||recordingPlayback||requestsInFlight)return;
     pollingError='';render(s);
-    if(pollCount++%5===0&&$('postmortemPanel')&&$('postmortemPanel').open)renderPostmortem();
+    if(pollCount%5===0&&$('postmortemPanel')&&$('postmortemPanel').open)renderPostmortem();
+    if(pollCount++%5===0&&$('learningPanel')&&$('learningPanel').open)renderLearning();
   }catch(e){
     if(epoch===viewEpoch&&!recordingPlayback&&!requestsInFlight){pollingError=I18N[lang].serverUnavailable;updateErrors();$('connection').textContent=pollingError}
   }finally{setTimeout(poll,600)}
@@ -559,6 +585,8 @@ async function poll(){
 window.addEventListener('error',e=>setClientError(I18N[lang].uiError+': '+(e.message||e.error)));
 const postmortemPanel=$('postmortemPanel');
 if(postmortemPanel&&postmortemPanel.addEventListener)postmortemPanel.addEventListener('toggle',()=>{if(postmortemPanel.open)renderPostmortem()});
+const learningPanel=$('learningPanel');
+if(learningPanel&&learningPanel.addEventListener)learningPanel.addEventListener('toggle',()=>{if(learningPanel.open)renderLearning()});
 applyLang();
 // The simulator must stay usable even if the map cannot start at all.
 applyMapMode();poll();
