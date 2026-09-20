@@ -288,13 +288,14 @@ class BlackBox:
                 evals = [json.loads(r['result_json']) for r in rows if r['result_json']]
                 outcomes = [json.loads(r['outcome_json']) for r in rows if r['outcome_json']]
                 sur = self.db.execute('SELECT s.distance,s.divergent FROM surprises s JOIN decisions d ON d.id=s.decision_id WHERE d.incident_id=?', (inc['incident_id'],)).fetchall()
+                measured = [s['distance'] for s in sur if s['distance'] is not None]
                 shown = self.db.execute('SELECT COUNT(DISTINCT u.lesson_id) AS n FROM lesson_uses u JOIN decisions d ON d.id=u.decision_id WHERE d.incident_id=?', (inc['incident_id'],)).fetchone()['n']
                 before = self.db.execute('SELECT COUNT(*) AS n FROM cases c JOIN evaluations e ON e.decision_id=c.decision_id WHERE c.decision_id<?', (inc['first_id'],)).fetchone()['n']
                 out.append(dict(incident_id=inc['incident_id'], started_at=inc['started_at'], decisions=inc['decisions'],
                                 regrets=[e.get('regret') for e in evals],
                                 judgement_gaps=sum(e.get('gap_type') == 'judgement' for e in evals), execution_gaps=sum(e.get('gap_type') == 'execution' for e in evals),
                                 surprise_checks=len(sur), divergences=sum(s['divergent'] for s in sur),
-                                mean_surprise=round(sum(s['distance'] for s in sur)/len(sur), 4) if sur else None,
+                                mean_surprise=round(sum(measured)/len(measured), 4) if measured else None,
                                 people_burnt=sum(o.get('people_burnt', 0) for o in outcomes), cases_before=before, lessons_shown=shown))
         return out
 

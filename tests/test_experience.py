@@ -154,6 +154,15 @@ class LessonCreditTests(unittest.TestCase):
         self.box.save_evaluation(did, dict(regret=regret, gap_type='none'))
         return did
 
+    def test_episodes_average_only_measured_surprises(self):
+        did = self._decision(0.)
+        self.box.save_surprise(did, worlds.premise_check(dict(wind=[1, 0], plans=dict(current_orders=dict(dispersion=.01))), self.sim))
+        ep = self.box.episodes()[0]
+        self.assertEqual((ep['surprise_checks'], ep['divergences'], ep['mean_surprise']), (1, 1, None))
+        self.box.save_surprise(did, dict(tick=4, distance=.2, threshold=.05, divergent=True, what_changed=[]))
+        ep = self.box.episodes()[0]
+        self.assertEqual((ep['surprise_checks'], ep['divergences'], ep['mean_surprise']), (2, 2, .2))
+
     def test_credit_compares_shown_versus_not_shown_and_retires_harmful_lessons(self):
         good = self.box.add_lesson('Good rule', None, confidence=.8)
         bad = self.box.add_lesson('Bad rule', None, confidence=.8)
