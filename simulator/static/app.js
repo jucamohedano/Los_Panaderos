@@ -302,7 +302,8 @@ Object.assign(I18N.es,{
   adCaution:'Comparación descriptiva; no demuestra aprendizaje.',
   learningViews:'Vistas de aprendizaje',experienceTab:'Experiencia disponible',resultsTab:'Resultados anteriores',
   casesTitle:'Casos para la última decisión',casesHelp:'Situaciones anteriores parecidas a la actual. Son referencias: el agente decide si aplican.',
-  sentNotUsed:'Enviados · uso no confirmado',experienceWaiting:'Los casos aparecerán tras la primera decisión. Sin precedentes, el agente usa la información actual.',
+  sentNotUsed:'Enviados · uso no confirmado',briefTitle:'Resumen enviado al agente',briefMeta:(n,c,l)=>`${n} caracteres · ${c} casos · ${l} reglas · evidencia, no órdenes`,curatorUsed:c=>` · curado por HappyRobot (confianza ${c})`,curatorDeferred:' · HappyRobot dejó el resumen determinista',experienceWaiting:'Los casos aparecerán tras la primera decisión. Sin precedentes, el agente usa la información actual.',
+  adReflex:'¿Quién decide?',adReflexCentral:'Central (HappyRobot)',adReflexWaiting:'Reflejo Jev en sombra: se anota junto a cada decisión, nunca actúa',adReflexSub:(a,ms,route)=>`Reflejo Jev en sombra · coincide ${a}% · ${ms} ms · ${route==='reflex'?'habría actuado':'habría escalado a Central'}`,adReflexGrade:(g)=>g==null?'':` · coste ${g>0?'+':''}${g} vs Central`,pmReflex:'Reflejo Jev (sombra)',pmReflexCell:(r)=>`${r.route==='reflex'?'actuaría':'escalaría'} · ${Math.round((r.agreement??0)*100)}% igual · ${r.latency_ms} ms${r.grade?` · regret ${r.grade.regret}`:''}`,
   savedLessons:'Reglas guardadas',lessonHelp:'Una reflexión puede proponer una regla para decisiones futuras. Las veces que se envió no demuestran que se utilizara.',
   resultsTitle:'¿Cómo se evaluaron las decisiones?',metricHelp:'Diferencia de coste frente al mejor plan evaluado después del incidente. Menos puntos es mejor; cero no significa misión cumplida.',
   comparisonNote:'Cada episodio es un incidente distinto. Esta comparación describe resultados; no demuestra que la memoria haya causado una mejora.',
@@ -341,7 +342,8 @@ Object.assign(I18N.en,{
   adCaution:'Descriptive comparison; does not prove learning.',
   learningViews:'Learning views',experienceTab:'Available experience',resultsTab:'Previous results',
   casesTitle:'Cases for the last decision',casesHelp:'Earlier situations similar to the current one. They are references: the agent decides whether they apply.',
-  sentNotUsed:'Sent · use unconfirmed',experienceWaiting:'Cases will appear after the first decision. Without precedents, the agent uses current information.',
+  sentNotUsed:'Sent · use unconfirmed',briefTitle:'Brief sent to the agent',briefMeta:(n,c,l)=>`${n} characters · ${c} cases · ${l} rules · evidence, not orders`,curatorUsed:c=>` · curated by HappyRobot (confidence ${c})`,curatorDeferred:' · HappyRobot kept the deterministic brief',experienceWaiting:'Cases will appear after the first decision. Without precedents, the agent uses current information.',
+  adReflex:'Who decides?',adReflexCentral:'Central (HappyRobot)',adReflexWaiting:'Jev reflex in shadow: recorded beside each decision, never acts',adReflexSub:(a,ms,route)=>`Jev reflex in shadow · agrees ${a}% · ${ms} ms · ${route==='reflex'?'would have acted':'would have escalated to Central'}`,adReflexGrade:(g)=>g==null?'':` · cost ${g>0?'+':''}${g} vs Central`,pmReflex:'Jev reflex (shadow)',pmReflexCell:(r)=>`${r.route==='reflex'?'would act':'would escalate'} · ${Math.round((r.agreement??0)*100)}% same · ${r.latency_ms} ms${r.grade?` · regret ${r.grade.regret}`:''}`,
   savedLessons:'Saved rules',lessonHelp:'A reflection can propose a rule for future decisions. Sending a rule does not prove it was used.',
   resultsTitle:'How were the decisions evaluated?',metricHelp:'Cost gap to the best plan evaluated after the incident. Fewer points is better; zero does not mean mission complete.',
   comparisonNote:'Each episode is a separate incident. This comparison describes outcomes; it does not show that memory caused an improvement.',
@@ -620,6 +622,9 @@ function renderAdaptation(s){
   set('adLearnSub',replay?t.adReplay:learningFailed?t.adUnavailable:!learningData?t.adLoading:eps.length?t.adEpisodes(eps.length):t.adNoGrades);
   $('adLearnChart').innerHTML=eps.length>1?sparkline(eps.map(e=>e.mean_regret),240,22):'';
   $('adaptLearn').title=t.adCaution;
+  const rx=replay?null:s.reflex,shadow=!!rx&&rx.mode!=='off';
+  $('adaptReflex').hidden=!shadow;$('adaptCards').classList.toggle('has-reflex',shadow);
+  if(shadow){set('adReflexMain',t.adReflexCentral);set('adReflexSub',rx.route?t.adReflexSub(Math.round((rx.agreement??0)*100),rx.latency_ms,rx.route)+t.adReflexGrade(rx.grade?.vs_central):t.adReflexWaiting);$('adaptReflex').title=(rx.orders||[]).join(' · ')}
   $('insightReplay').hidden=!replay;
   if(insightPanel)$(insightPanel).hidden=replay;
   if(insightPanel)$('insightTitle').textContent=t[{forecastPanel:'forecast',learningPanel:'learning',postmortemPanel:'postmortem'}[insightPanel]];
@@ -648,7 +653,7 @@ function openInsight(panel,results=false){
     if(panel==='postmortemPanel')renderPostmortem();
   }
 }
-for(const [id,panel] of Object.entries({adaptForecast:'forecastPanel',adaptChange:'forecastPanel',adaptMemory:'learningPanel',adaptLearn:'learningPanel',openPostmortem:'postmortemPanel'})){
+for(const [id,panel] of Object.entries({adaptForecast:'forecastPanel',adaptChange:'forecastPanel',adaptMemory:'learningPanel',adaptLearn:'learningPanel',adaptReflex:'postmortemPanel',openPostmortem:'postmortemPanel'})){
   $(id).onclick=()=>openInsight(panel,id==='adaptLearn');
 }
 function escapeHTML(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -669,9 +674,10 @@ async function renderPostmortem(){
   body.innerHTML=p.decisions.length?p.decisions.map(d=>{
     const r=d.result||{},s=d.signals||{},gap=r.gap_type||'pending';
     const regret=r.regret===undefined||r.regret===null?(r.gap_type?'—':t.pmPending):r.regret;
-    const reflection=d.reflection?`<tr class="reflection"><td colspan="7">${escapeHTML(d.reflection)}${d.diagnosis&&d.diagnosis.proposed_rule?`<br><em>→ ${escapeHTML(d.diagnosis.proposed_rule)}</em>`:''}</td></tr>`:'';
-    return `<tr class="gap-${gap}"><td>${d.tick}</td><td>${escapeHTML(summarizeOrders(d.decision))}${d.status!=='applied'?` <b>[${escapeHTML(d.status)}]</b>`:''}</td><td>${escapeHTML(summarizeOrders(r.best_decision))}</td><td>${regret}</td><td>${escapeHTML(gap)}</td><td>${d.latency_s??''}</td><td>${s.loop_detected?'⚠ '+escapeHTML(JSON.stringify(s.repeated_tool_calls||{})):''}</td></tr>`+reflection;
-  }).join(''):`<tr><td colspan="7">${t.pmNone}</td></tr>`;
+    const reflection=d.reflection?`<tr class="reflection"><td colspan="8">${escapeHTML(d.reflection)}${d.diagnosis&&d.diagnosis.proposed_rule?`<br><em>→ ${escapeHTML(d.diagnosis.proposed_rule)}</em>`:''}</td></tr>`:'';
+    const rx=d.reflex?`<span title="${escapeHTML((d.reflex.orders||[]).join(' · '))}">${escapeHTML(t.pmReflexCell(d.reflex))}</span>`:'—';
+    return `<tr class="gap-${gap}"><td>${d.tick}</td><td>${escapeHTML(summarizeOrders(d.decision))}${d.status!=='applied'?` <b>[${escapeHTML(d.status)}]</b>`:''}</td><td>${escapeHTML(summarizeOrders(r.best_decision))}</td><td>${regret}</td><td>${escapeHTML(gap)}</td><td>${d.latency_s??''}</td><td>${s.loop_detected?'⚠ '+escapeHTML(JSON.stringify(s.repeated_tool_calls||{})):''}</td><td>${rx}</td></tr>`+reflection;
+  }).join(''):`<tr><td colspan="8">${t.pmNone}</td></tr>`;
   $('patches').innerHTML=p.patches&&p.patches.length?`<strong>${t.pmPatches}</strong><ul>${p.patches.map(x=>`<li><code>${escapeHTML(x.version_id)}</code> · ${escapeHTML(x.report_path)}</li>`).join('')}</ul>`:'';
 }
 // Learning panel: per-incident regret curve, the experience the last decision saw, and the lesson ledger with credit.
@@ -690,7 +696,7 @@ async function renderLearning(){
       setLearningHTML($('learningCurve'),'');$('learningCurve').textContent=I18N[lang].adUnavailable;
       const body=$('learningEpisodes')?.querySelector?.('tbody');if(body)setLearningHTML(body,'');
       setLearningHTML($('experienceUsed'),'');setLearningHTML($('lessonLedger'),'');
-      $('experienceEmpty').hidden=true;$('lessonSummary').textContent=I18N[lang].savedLessons;
+      $('experienceEmpty').hidden=true;$('briefSent').hidden=true;$('lessonSummary').textContent=I18N[lang].savedLessons;
     }
     return;
   }
@@ -747,7 +753,9 @@ function renderLearningData(p){
       <figure class="regret-figure">${regretChart(eps)}<figcaption>${t.incidentAxis} · <span class="${last<first?'trend-down':last>first?'trend-up':''}">${t.lcTrend(first,last)}</span></figcaption></figure>`)}
   else{setLearningHTML($('learningCurve'),'');$('learningCurve').textContent=t.lcNone}
   if(body)setLearningHTML(body,eps.map((e,i)=>`<tr><td>${i+1}</td><td>${escapeHTML((e.incident_id||'').slice(0,8))}</td><td>${e.graded} / ${e.decisions??0}</td><td>${e.mean_regret}</td><td>${(e.judgement_gaps||0)+(e.execution_gaps||0)}</td><td>${e.divergences??0} / ${e.surprise_checks??0}</td><td>${e.cases_available??0}</td><td>${e.lessons_shown??0}</td></tr>`).join(''));
-  const x=p.experience;
+  const x=p.experience,b=x?.brief;
+  $('briefSent').hidden=!b?.text;
+  if(b?.text){$('briefText').textContent=b.text;const cu=x.curator;$('briefMeta').textContent=t.briefMeta(b.text.length,(b.cases||[]).length,(b.lessons||[]).length)+(cu?(cu.agent_used?t.curatorUsed(cu.confidence.toFixed(2)):t.curatorDeferred):'')}
   $('experienceEmpty').hidden=!!x?.cases?.length;
   $('experienceEmpty').textContent=x?t.lcNoCases:t.experienceWaiting;
   setLearningHTML($('experienceUsed'),(x?.cases||[]).map(caseCard).join(''));

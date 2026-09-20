@@ -36,6 +36,10 @@ SEED_BASE = 1000
 DIVERGENCE_RATIO = 2.0
 DIVERGENCE_FLOOR = 0.05
 DIVERGENCE_CEILING = 0.30
+# The wind is agent-visible and every branch was rolled under the forecast's wind, so a
+# turn of at least this angle (or a strength jump) breaks the premise before any cell burns.
+PREMISE_WIND_ANGLE = math.pi/4
+PREMISE_WIND_STRENGTH = 1.0
 
 _pool = None
 _pool_lock = threading.Lock()
@@ -271,11 +275,28 @@ def surprise(forecast_result, sim, plan='current_orders'):
     if max(d['terms']['fire'], d['terms']['burned']) > .2:
         changed.append(f"observed front differs from forecast: {len(actual['fire'])} burning / {len(actual['burned'])} burned cells seen "
                        f"vs {len(expected['fire'])} / {len(expected['burned'])} forecast in the same footprint")
+    premise = wind_premise_broken(forecast_result.get('wind'), sim.wind)
     if forecast_result.get('wind') is not None and list(sim.wind) != list(forecast_result['wind']):
-        changed.append(f"wind changed from {forecast_result['wind']} to {list(sim.wind)}")
+        changed.append(f"wind changed from {forecast_result['wind']} to {list(sim.wind)}"
+                       + (': every branch assumed the old wind' if premise else ''))
     return dict(tick=sim.tick, compared_to_tick=nearest, distance=d['total'], terms=d['terms'], dispersion=dispersion,
-                threshold=threshold, divergent=d['total'] > threshold, what_changed=changed[:8], observed_cells=len(footprint),
+                threshold=threshold, divergent=d['total'] > threshold or premise, premise_broken=premise,
+                what_changed=changed[:8], observed_cells=len(footprint),
                 forecast_issued_at=forecast_result.get('issued_at'), forecast_wind=forecast_result.get('wind'), wind_now=list(sim.wind))
+
+
+def wind_premise_broken(forecast_wind, wind_now):
+    """True when the wind turned by PREMISE_WIND_ANGLE or more, or its strength moved by PREMISE_WIND_STRENGTH."""
+    if forecast_wind is None:
+        return False
+    a, b = tuple(forecast_wind), tuple(wind_now)
+    sa, sb = math.hypot(*a), math.hypot(*b)
+    if abs(sa-sb) >= PREMISE_WIND_STRENGTH:
+        return True
+    if not sa or not sb:
+        return sa != sb
+    cos = max(-1., min(1., (a[0]*b[0]+a[1]*b[1])/(sa*sb)))
+    return math.acos(cos) >= PREMISE_WIND_ANGLE-1e-9
 
 
 def agent_view(forecast_result, plan='current_orders'):

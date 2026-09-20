@@ -179,6 +179,24 @@ class SurpriseTests(unittest.TestCase):
         self.assertEqual(result['wind_now'], [-3, 0])
         self.assertTrue(any(c.startswith('wind changed') for c in result['what_changed']))
 
+    def test_wind_turn_breaks_the_premise_even_with_nothing_new_observed(self):
+        s = observing()
+        turned, _ = self.roll(s, small(s), 4, lambda r: r.set_wind(x=1, y=0))
+        self.assertTrue(turned['premise_broken'])
+        self.assertTrue(turned['divergent'])
+        self.assertTrue(any('every branch assumed the old wind' in c for c in turned['what_changed']))
+        nudged, _ = self.roll(s, small(s), 4, lambda r: r.set_wind(x=.3, y=-1))
+        self.assertFalse(nudged['premise_broken'])
+        self.assertTrue(any(c.startswith('wind changed') for c in nudged['what_changed']))
+
+    def test_wind_premise_rule(self):
+        self.assertFalse(worlds.wind_premise_broken(None, (1, 0)))
+        self.assertFalse(worlds.wind_premise_broken((0, -1), (0, -1)))
+        self.assertTrue(worlds.wind_premise_broken((0, -1), (1, -1)))      # 45 degrees
+        self.assertTrue(worlds.wind_premise_broken((0, -1), (0, -2)))      # strength +1
+        self.assertTrue(worlds.wind_premise_broken((0, 0), (0, -1)))       # calm to wind
+        self.assertFalse(worlds.wind_premise_broken((0, -1), (0, -1.5)))
+
     def test_threshold_is_bounded(self):
         s = observing()
         f = small(s)

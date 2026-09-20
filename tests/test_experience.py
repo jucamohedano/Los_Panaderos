@@ -58,6 +58,24 @@ class SignatureTests(unittest.TestCase):
         self.assertGreater(d_people['total'], d_people['terms']['districts']*experience.SIGNATURE_WEIGHTS['districts']-1e-9)
         self.assertLessEqual(max(d_wind['total'], d_people['total']), 1.)
 
+    def test_far_districts_downwind_are_still_downwind(self):
+        s = scenario(wind='west')
+        sig = experience.signature(s)
+        far = [k for k, d in sig['districts'].items() if d['distance'] >= experience.FAR_CELLS]
+        self.assertTrue(far)
+        self.assertTrue(any(sig['districts'][k]['downwind'] >= .5 for k in far), sig['districts'])
+        self.assertIn('people:downwind', sig['labels'])
+        self.assertEqual(sig['label_version'], 2)
+
+    def test_fleet_composition_separates_otherwise_identical_situations(self):
+        light = Simulation(seed=9, fleet_counts=dict(scouts=1, extinguishers=1, trucks=0))
+        truck = Simulation(seed=9, fleet_counts=dict(scouts=1, extinguishers=1, trucks=1))
+        for s in (light, truck):
+            s.set_wind('north'); s.ignite(); s.farmer_call(); s.step(2)
+        d = experience.signature_distance(experience.signature(light), experience.signature(truck))
+        self.assertGreater(d['terms']['fleet'], 0.)
+        self.assertLess(d['total'], experience.MAX_CASE_DISTANCE)
+
     def test_first_minutes_phase_matters_more_than_late_ticks(self):
         early, mid = scenario(steps=2), scenario(steps=12)
         late, later = scenario(steps=40), scenario(steps=50)
@@ -202,6 +220,14 @@ class ControllerExperienceTests(unittest.TestCase):
                 self.assertEqual(len(state['similar_cases']), 1)
                 self.assertEqual(state['similar_cases'][0]['regret'], 100.)
                 self.assertEqual(state['lessons_learned'], ['Warn the farm first.'])
+                sent = decide.call_args.args[0]
+                brief = state['episode_brief']
+                self.assertEqual(brief['cases'][0]['decision_id'], 1)
+                self.assertEqual(brief['lessons'][0]['rule'], 'Warn the farm first.')
+                self.assertEqual(brief['forecast']['horizon'], state['possible_worlds']['horizon'])
+                self.assertEqual(sent['tactical_constraints'], brief['text'])
+                self.assertEqual(set(json.loads(sent['priority_districts'])), set(brief['situation']['unwarned']) & set(json.loads(sent['priority_districts'])))
+                self.assertIn('mission', sent); self.assertIn('downwind_front', sent)
                 self.assertNotIn('true_burning_cells', decide.call_args.args[0]['world_state'])
                 self.assertIsNotNone(c.box.case_signature(2))
                 self.assertEqual(c.box.lesson_regrets(lid)[0], [])  # shown but not graded yet
@@ -256,6 +282,46 @@ class EpisodeHarnessTests(unittest.TestCase):
                 self.assertEqual(plan['extinguisher_orders'][0]['command'], 'scout')
                 self.assertEqual(episodes.experience_agent(now, dict(similar_cases=[]), box)['mission'], 'baseline')
                 self.assertEqual(episodes.hold_agent(now, {}, box)['mission'], 'baseline')
+            finally:
+                box.close()
+
+    def test_experience_agent_also_adopts_a_zero_regret_case(self):
+        with TemporaryDirectory() as tmp:
+            box = BlackBox(Path(tmp)/'ep.sqlite')
+            try:
+                past = scenario()
+                good = orders(past, 'scout', (past.report[0]-3, past.report[1]))
+                graded(box, past, good, 0.)
+                now = scenario()
+                state = dict(similar_cases=experience.retrieve(box, experience.signature(now), exclude_incident=now.incident_id))
+                self.assertIsNone(state['similar_cases'][0]['oracle_preferred'])
+                plan = episodes.experience_agent(now, state, box)
+                self.assertIn('regret 0', plan['mission'])
+                self.assertEqual(plan['extinguisher_orders'][0]['command'], 'scout')
+            finally:
+                box.close()
+
+    def test_experience_agent_regrounds_intents_on_a_different_fleet(self):
+        with TemporaryDirectory() as tmp:
+            box = BlackBox(Path(tmp)/'ep.sqlite')
+            try:
+                past = scenario()
+                farm = past.groups['farm']['home']
+                best = orders(past, 'evacuate_farm', farm)
+                best['extinguisher_orders'][0]['district_id'] = 'farm'
+                graded(box, past, orders(past), 100., best)
+                now = Simulation(seed=9, fleet_counts=dict(scouts=0, extinguishers=2, trucks=0))
+                now.set_wind('north'); now.ignite(); now.farmer_call(); now.step(2)
+                self.assertFalse(episodes.oracle.is_valid(now, best))
+                state = dict(similar_cases=experience.retrieve(box, experience.signature(now), exclude_incident=now.incident_id))
+                self.assertTrue(state['similar_cases'])
+                plan = episodes.experience_agent(now, state, box)
+                self.assertIn('re-grounded', plan['mission'])
+                self.assertEqual({o['drone_id'] for o in plan['extinguisher_orders']}, {d['drone_id'] for d in now.extinguishers})
+                self.assertEqual([o['command'] for o in plan['extinguisher_orders']].count('evacuate_farm'), 1)
+                self.assertEqual(plan['scout_orders'], [])
+                self.assertTrue(episodes.oracle.is_valid(now, plan))
+                self.assertIsNone(episodes.reground(now, episodes.hold_orders(past)))
             finally:
                 box.close()
 

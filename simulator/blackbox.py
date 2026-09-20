@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS forecasts(decision_id INTEGER, kind TEXT, issued_at I
 CREATE TABLE IF NOT EXISTS surprises(id INTEGER PRIMARY KEY, decision_id INTEGER, tick INTEGER, distance REAL, threshold REAL, divergent INTEGER, surprise_json TEXT);
 CREATE TABLE IF NOT EXISTS cases(decision_id INTEGER PRIMARY KEY, incident_id TEXT, signature_json TEXT);
 CREATE TABLE IF NOT EXISTS lesson_uses(decision_id INTEGER, lesson_id INTEGER, PRIMARY KEY(decision_id, lesson_id));
+CREATE TABLE IF NOT EXISTS reflexes(decision_id INTEGER PRIMARY KEY, mode TEXT, route TEXT, confidence REAL, agreement REAL, latency_ms INTEGER, regret REAL, reflex_json TEXT);
 """
 # Columns added to `lessons` after the first release; applied idempotently to old databases.
 LESSON_COLUMNS = dict(context_json='TEXT', gap_type='TEXT', confidence='REAL', uses='INTEGER DEFAULT 0',
@@ -114,10 +115,49 @@ class BlackBox:
         with self.lock:
             rows = self.db.execute(
                 'SELECT d.id,d.tick,d.event_type,d.created_at,d.run_id,d.latency_s,d.status,d.decision_json,d.reject_reason,d.outcome_json,'
-                's.signals_json,e.result_json,r.text AS reflection,r.diagnosis_json,r.run_id AS reflection_run_id FROM decisions d '
+                's.signals_json,e.result_json,r.text AS reflection,r.diagnosis_json,r.run_id AS reflection_run_id,x.reflex_json FROM decisions d '
                 'LEFT JOIN signals s ON s.decision_id=d.id LEFT JOIN evaluations e ON e.decision_id=d.id '
-                'LEFT JOIN reflections r ON r.decision_id=d.id WHERE d.incident_id=? ORDER BY d.id', (incident_id,)).fetchall()
+                'LEFT JOIN reflections r ON r.decision_id=d.id LEFT JOIN reflexes x ON x.decision_id=d.id WHERE d.incident_id=? ORDER BY d.id', (incident_id,)).fetchall()
         return [dict(r) for r in rows]
+
+    def save_reflex(self, decision_id, verdict, agreement=None):
+        """Shadow reflex verdict recorded beside the real decision; graded later by ``set_reflex_regret``."""
+        with self.lock:
+            self.db.execute('INSERT OR REPLACE INTO reflexes(decision_id,mode,route,confidence,agreement,latency_ms,regret,reflex_json) VALUES(?,?,?,?,?,?,NULL,?)',
+                            (decision_id, verdict.get('mode'), verdict.get('route'), verdict.get('confidence'), agreement, verdict.get('latency_ms'),
+                             json.dumps(dict(verdict, agreement=agreement))))
+            self.db.commit()
+
+    def reflex(self, decision_id):
+        with self.lock:
+            row = self.db.execute('SELECT reflex_json FROM reflexes WHERE decision_id=?', (decision_id,)).fetchone()
+        return json.loads(row['reflex_json']) if row else None
+
+    def set_reflex_regret(self, decision_id, grade):
+        with self.lock:
+            row = self.db.execute('SELECT reflex_json FROM reflexes WHERE decision_id=?', (decision_id,)).fetchone()
+            if row is None:
+                return
+            data = dict(json.loads(row['reflex_json']), grade=grade)
+            self.db.execute('UPDATE reflexes SET regret=?, reflex_json=? WHERE decision_id=?', (grade.get('regret') if grade else None, json.dumps(data), decision_id))
+            self.db.commit()
+
+    def reflex_summary(self):
+        """Shadow record across all incidents: how often Jev would have acted, agreed and what it would have cost."""
+        with self.lock:
+            rows = self.db.execute('SELECT x.route,x.confidence,x.agreement,x.latency_ms,x.regret,e.result_json FROM reflexes x '
+                                   'LEFT JOIN evaluations e ON e.decision_id=x.decision_id').fetchall()
+        if not rows:
+            return None
+        graded = [(r['regret'], json.loads(r['result_json']).get('regret')) for r in rows if r['regret'] is not None and r['result_json']]
+        graded = [(a, b) for a, b in graded if b is not None]
+        return dict(decisions=len(rows), would_act=sum(r['route'] == 'reflex' for r in rows),
+                    mean_confidence=round(sum(r['confidence'] or 0 for r in rows)/len(rows), 2),
+                    mean_agreement=round(sum(r['agreement'] for r in rows if r['agreement'] is not None)/max(1, sum(r['agreement'] is not None for r in rows)), 2),
+                    mean_latency_ms=int(sum(r['latency_ms'] or 0 for r in rows)/len(rows)), graded=len(graded),
+                    reflex_mean_regret=round(sum(a for a, _ in graded)/len(graded), 1) if graded else None,
+                    central_mean_regret=round(sum(b for _, b in graded)/len(graded), 1) if graded else None,
+                    reflex_better=sum(a < b for a, b in graded), reflex_worse=sum(a > b for a, b in graded))
 
     def save_telemetry(self, decision_id, steps, signals):
         with self.lock:

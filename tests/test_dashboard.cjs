@@ -71,6 +71,35 @@ test('adaptation distinguishes divergence, checked state, reset and replay', asy
   assert.match(h.elements.get('adChangeSub').textContent, /Reproducción/);
 });
 
+test('Jev shadow card appears only when the reflex runs, names Central as decider and never claims to act', async () => {
+  const h = await harness();
+  h.put('s', frame()); h.run('render(s)');
+  assert.equal(h.elements.get('adaptReflex').hidden, true);
+  assert.equal(h.elements.get('adaptCards').classList.contains('has-reflex'), false);
+  h.put('s', frame({reflex: {mode: 'shadow'}})); h.run('render(s)');
+  assert.equal(h.elements.get('adaptReflex').hidden, false);
+  assert.match(h.elements.get('adReflexSub').textContent, /nunca actúa/);
+  h.put('s', frame({reflex: {mode: 'shadow', route: 'central', agreement: .5, latency_ms: 244, grade: {vs_central: 12.5}, orders: ['<scout-1: hold>']}}));
+  h.run('render(s)');
+  assert.equal(h.elements.get('adReflexMain').textContent, 'Central (HappyRobot)');
+  assert.match(h.elements.get('adReflexSub').textContent, /coincide 50% · 244 ms · habría escalado a Central · coste \+12\.5 vs Central/);
+  assert.equal(h.elements.get('adaptReflex').title, '<scout-1: hold>');
+  assert.ok(h.elements.get('adaptCards').classList.contains('has-reflex'));
+  h.put('s', frame({replay: true, reflex: {mode: 'shadow', route: 'reflex'}})); h.run('render(s)');
+  assert.equal(h.elements.get('adaptReflex').hidden, true);
+  h.put('s', frame({reflex: {mode: 'shadow'}})); h.run('render(s)');
+  const tbody = new Element('tbody');
+  h.elements.get('postmortem').querySelector = selector => selector === 'tbody' ? tbody : null;
+  h.handler = request => request.url === '/api/postmortem' ? response({incident_id: 'i', lessons: [], patches: [], decisions: [
+    {id: 1, tick: 5, status: 'applied', decision: {}, result: {regret: 0, gap_type: 'none'}, reflex: {route: 'reflex', agreement: 1, latency_ms: 180, grade: {regret: 0}, orders: ['<x>']}},
+    {id: 2, tick: 9, status: 'applied', decision: {}, result: null, reflex: null}]}) : response(h.server);
+  await h.run('renderPostmortem()');
+  assert.match(tbody.innerHTML, /actuaría · 100% igual · 180 ms · regret 0/);
+  assert.match(tbody.innerHTML, /title="&lt;x&gt;"/);
+  assert.match(tbody.innerHTML, /<td>9<\/td>.*<td><\/td><td>—<\/td><\/tr>/);
+  assert.equal((tbody.innerHTML.match(/<td>—<\/td><\/tr>/g) || []).length, 1);
+});
+
 test('adaptive evidence opens in a dialog without page scrolling and hides live panels in replay', async () => {
   const h = await harness();
   h.elements.get('adaptForecast').click();

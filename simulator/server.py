@@ -15,7 +15,7 @@ from .blackbox import BlackBox
 from .engine import Simulation
 from .geo import PLACE
 from .happyrobot import HappyRobot, EDITOR
-from . import experience, worlds
+from . import curator, experience, reflex, worlds
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / '.runtime'
@@ -76,6 +76,8 @@ class Controller:
         # Experience replay: the situation signature and retrieved cases/lessons shown to the last decision.
         self.experience = None
         self.experience_before = None
+        # Jev reflex in shadow mode: a typed fast verdict recorded beside each decision, never applied.
+        self.reflex = None
         threading.Thread(target=self._clock, daemon=True).start()
 
     def _set_lessons(self, lessons):
@@ -154,9 +156,11 @@ class Controller:
             incident = self.sim.incident_id
         rows = self.box.list_decisions(incident)
         for row in rows:
-            for key in ('decision_json', 'outcome_json', 'signals_json', 'result_json', 'diagnosis_json'):
+            for key in ('decision_json', 'outcome_json', 'signals_json', 'result_json', 'diagnosis_json', 'reflex_json'):
                 raw = row.pop(key, None)
                 row[key[:-5]] = json.loads(raw) if raw else None
+            if row['reflex']:
+                row['reflex'].pop('decision', None)
         forecasts = {row['id']: self.box.forecast(row['id']) for row in rows}
         for row in rows:
             plan = ((forecasts.get(row['id']) or {}).get('plans') or {}).get('current_orders') or {}
@@ -205,7 +209,28 @@ class Controller:
                         connected=self.robot.connected, error=self.error, workflow_url=EDITOR,
                         workflow_calls=self.calls, latency=self.latency, run_evidence=self.run_evidence,
                         forecast=self._forecast_view(), divergence=self.sim.divergence, surprises=self.surprises[-12:],
-                        experience=self.experience)
+                        experience=self.experience, reflex=self._reflex_view())
+
+    def _reflex(self, world, event_type, brief):
+        """Start Jev on the frozen world while HappyRobot deliberates; returns a getter that never raises."""
+        if not reflex.enabled():
+            return None
+        result = {}
+
+        def run():
+            try:
+                result['verdict'] = reflex.decide(world, event_type, brief)
+            except Exception as exc:
+                result['error'] = str(exc)[:200]
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+
+        def get():
+            thread.join(reflex.TIMEOUT+2)
+            if 'error' in result:
+                self._log('reflex', f"Jev shadow skipped: {result['error']}")
+            return result.get('verdict')
+        return get
 
     def _experience_context(self, world, event_type):
         """Similar graded past decisions and the lessons relevant to this situation, computed off the lock."""
@@ -213,10 +238,36 @@ class Controller:
         return dict(signature=sig, cases=experience.retrieve(self.box, sig, exclude_incident=world.incident_id),
                     lessons=experience.relevant_lessons(self.box, sig))
 
+    def _curate(self, payload, context):
+        """Optional HappyRobot curator: judges which precedents apply and fills the mission inputs it is confident about."""
+        if not curator.enabled():
+            return
+        try:
+            curated = curator.curate(self.robot, payload)
+        except Exception as exc:
+            self._log('experience', f'Experience workflow skipped: {str(exc)[:200]}')
+            return
+        for key, value in curated['fields'].items():
+            if not payload.get(key):
+                payload[key] = value
+        context['curator'] = curated
+        self._log('experience', f"Experience workflow {'applied' if curated['agent_used'] else 'deferred to the deterministic brief'} "
+                                f"(confidence {curated['confidence']:.2f}, run {curated['run_id'][:8]})")
+
+    def _reflex_view(self):
+        if not reflex.enabled():
+            return dict(mode='off')
+        if not self.reflex:
+            return dict(mode=reflex.mode())
+        graded = self.box.reflex(self.reflex['decision_id']) or {}
+        return dict({k: self.reflex[k] for k in ('mode', 'route', 'reasons', 'orders', 'confidence', 'escalate', 'threat', 'latency_ms', 'agreement', 'decision_id')},
+                    grade=graded.get('grade'))
+
     def learning(self):
         with self.lock:
             shown = self.experience
-        return dict(episodes=experience.learning_curve(self.box), lessons=self.box.lesson_rows(active_only=False), experience=shown)
+        return dict(episodes=experience.learning_curve(self.box), lessons=self.box.lesson_rows(active_only=False), experience=shown,
+                    reflex=self.box.reflex_summary())
 
     def _forecast_view(self):
         if not self.forecast:
@@ -264,16 +315,28 @@ class Controller:
                     self._log('experience', f'Case retrieval skipped: {str(exc)[:200]}')
             if before or context:
                 state = json.loads(payload['world_state'])
-                if before:
-                    state['possible_worlds'] = worlds.agent_view(before)
+                view = worlds.agent_view(before) if before else None
+                if view:
+                    state['possible_worlds'] = view
                 if context:
                     state['similar_cases'] = context['cases']
                     state['lessons_learned'] = [l['rule'] for l in context['lessons']]
+                    # Same evidence, compacted; also fills the fleet workflow's mission inputs when no dispatcher did.
+                    brief = experience.brief(context['signature'], context['cases'], context['lessons'], view, state.get('forecast_divergence'))
+                    context['brief'] = brief
+                    state['episode_brief'] = brief
                 payload['world_state'] = json.dumps(state)
+                if context:
+                    self._curate(payload, context)
+                    for key, value in experience.dispatch_fields(brief).items():
+                        if not payload.get(key):
+                            payload[key] = value
             if context and context['cases']:
                 self._log('experience', f"{len(context['cases'])} similar past decision(s) retrieved (closest {context['cases'][0]['similarity_distance']}, regret {context['cases'][0]['regret']}); "
                                         f"{len(context['lessons'])} lesson(s) relevant")
+            shadow = self._reflex(world, payload.get('event_type'), context and context.get('brief')) if world is not None else None
             decision, evidence = self.robot.decide(payload)
+            verdict = shadow() if shadow else None
             with self.lock:
                 if self.reset_pending:return
                 self.calls += 1
@@ -286,6 +349,13 @@ class Controller:
                     self.box.save_case(decision_id, payload['incident_id'], context['signature'])
                     self.box.record_lesson_uses(decision_id, [l['id'] for l in context['lessons']])
                     self.experience = dict(context, decision_id=decision_id)
+                if verdict:
+                    agreement = reflex.agreement(verdict['decision'], decision)
+                    self.box.save_reflex(decision_id, verdict, agreement)
+                    self.reflex = dict(verdict, agreement=agreement, decision_id=decision_id)
+                    self._log('reflex', f"Jev shadow ({verdict['latency_ms']} ms): {'; '.join(verdict['orders'])} · confidence {verdict['confidence']:.2f} · "
+                                        f"would route to {verdict['route']}" + (f" ({verdict['reasons'][0]})" if verdict['reasons'] else '') +
+                                        f" · agreement with Central {agreement}")
                 self.sim.divergence = None
                 try:
                     self.sim.apply(decision,payload['event_id'],payload['incident_id'],tick)
@@ -386,6 +456,7 @@ class Controller:
                 self.surprises = []
                 self.experience = None
                 self.experience_before = None
+                self.reflex = None
             elif action == 'lesson':
                 lesson_id, active = int(data.get('id')), bool(data.get('active', True))
                 if active:
@@ -514,6 +585,7 @@ def serve(port=8765):
     server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
     print(f'Los Panaderos: http://127.0.0.1:{port}', flush=True)
     print('HappyRobot development workflow; farmer call is a simulated transcript.', flush=True)
+    print(f'Jev reflex: {reflex.mode()}', flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -528,4 +600,5 @@ def serve(port=8765):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, default=8765)
+    reflex.load_env_key()
     serve(parser.parse_args().port)

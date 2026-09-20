@@ -1,5 +1,9 @@
 # Experience replay evaluation
 
+> Historical: first held-out benchmark (`simulator.evaluation`, labels v1). The
+> failures it exposed were fixed and re-measured across more scenario families
+> in [adaptation-evaluation.md](adaptation-evaluation.md); read that one first.
+
 ## Verdict
 
 Persistent memory and retrieval work, but this evaluation **does not establish an

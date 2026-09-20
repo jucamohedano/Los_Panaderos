@@ -32,7 +32,14 @@ MAX_CASE_DISTANCE = .25   # cases further than this are not shown: unrelated exp
 LESSON_CONFIDENCE = .5    # tier-1 lessons below this are logged but never enter a payload
 LESSON_MIN_USES = 3       # credit assignment needs this many shown decisions before judging a lesson
 LESSON_RETIRE_MARGIN = 10.  # retire when decisions shown the lesson regret this much more than those without
-LABEL_VERSION = 1
+LABEL_VERSION = 2          # 2: downwind is measured for every district, not only those within FAR_CELLS
+BRIEF_VERSION = 1
+BRIEF_CASES = 3            # cases in the decision-time brief; more is noise for a one-shot agent
+BRIEF_TEXT_CHARS = 1200    # hard cap on the prompt-ready paragraph
+BRIEF_FIELD_CHARS = 160    # hard cap on any free-text field copied from a past case
+BRIEF_ROLE = ('Evidence, not orders: graded past decisions, lessons and the possible-worlds forecast for this situation. '
+              'Current observations, rules and constraints prevail; say which evidence you used or set aside.')
+DIRECTIONS = ('east', 'southeast', 'south', 'southwest', 'west', 'northwest', 'north', 'northeast')
 
 
 def _mean(values):
@@ -48,7 +55,7 @@ def signature(sim, event_type='local_observation'):
     strength = math.hypot(*sim.wind)
     districts = {}
     for key, g in sim.groups.items():
-        dist, cos = FAR_CELLS, 0.
+        dist, cos = math.inf, 0.
         for x, y in sources:
             dx, dy = g['x']-x, g['y']-y
             d = math.hypot(dx, dy)
@@ -67,6 +74,11 @@ def signature(sim, event_type='local_observation'):
     return dict(sig, label_version=LABEL_VERSION, labels=situation_labels(sig))
 
 
+def wind_direction(wind):
+    """Compass name of where the wind pushes the fire (vector points TO spread)."""
+    return DIRECTIONS[math.floor(math.atan2(wind[1], wind[0])/(math.pi/4)+.5) % 8]
+
+
 def situation_labels(sig):
     """Version-one labels derived solely from the stored belief signature."""
     labels = ['phase:early' if sig['tick'] < EARLY_TICKS else 'phase:later',
@@ -74,9 +86,7 @@ def situation_labels(sig):
     if not sig['wind_strength']:
         labels.append('wind:calm')
     else:
-        directions = ('east', 'southeast', 'south', 'southwest', 'west', 'northwest', 'north', 'northeast')
-        direction = math.floor(math.atan2(sig['wind'][1], sig['wind'][0])/(math.pi/4)+.5) % 8
-        labels.extend([f'wind:{directions[direction]}', 'wind:strong' if sig['wind_strength'] >= 2 else 'wind:light'])
+        labels.extend([f'wind:{wind_direction(sig["wind"])}', 'wind:strong' if sig['wind_strength'] >= 2 else 'wind:light'])
     unwarned = [d for d in sig['districts'].values() if d['status'] == 'unwarned']
     labels.append('people:downwind' if any(d['downwind'] >= .5 for d in unwarned) else 'people:no_downwind')
     if any(d['distance'] <= NEAR_CELLS for d in unwarned):
@@ -112,7 +122,9 @@ def signature_distance(a, b, weights=SIGNATURE_WEIGHTS):
                    +DISTRICT_WEIGHTS['distance']*abs(da['distance']-db['distance'])/FAR_CELLS)
     terms['districts'] = sum(per)/len(per) if per else 0.
     fla, flb = a['fleet'], b['fleet']
-    terms['fleet'] = sum(min(1., abs(fla.get(k, 0)-flb.get(k, 0))/3) for k in ('idle_scouts', 'idle_extinguishers', 'trucks_mobile'))/3
+    composition = sum(min(1., abs(fla.get(k, 0)-flb.get(k, 0))/2) for k in ('scouts', 'extinguishers', 'trucks'))/3
+    availability = sum(min(1., abs(fla.get(k, 0)-flb.get(k, 0))/3) for k in ('idle_scouts', 'idle_extinguishers', 'trucks_mobile'))/3
+    terms['fleet'] = .5*composition+.5*availability
     total = sum(weights[k]*v for k, v in terms.items())
     return dict(total=round(min(1., total), 4), terms={k: round(v, 4) for k, v in terms.items()})
 
@@ -182,6 +194,125 @@ def relevant_lessons(box, sig, limit=5):
         scored.append((d, -r['id'], r))
     scored.sort(key=lambda t: (t[0], t[1]))
     return [dict(id=r['id'], rule=r['rule'], relevance=round(1-d, 3)) for d, _, r in scored[:limit]]
+
+
+def _clip(text, limit=BRIEF_FIELD_CHARS):
+    if not isinstance(text, str):
+        return None
+    text = ' '.join(text.split())
+    return text if len(text) <= limit else text[:limit-1].rstrip()+'…'
+
+
+def rank_districts(sig, forecast_view=None):
+    """Exposed unwarned districts, people x max(forecast threat, downwind, proximity) first; unexposed ones are left out."""
+    threat = (forecast_view or {}).get('districts') or {}
+    ranked = []
+    for key, d in sig['districts'].items():
+        if d['status'] != 'unwarned':
+            continue
+        p_fire = (threat.get(key) or {}).get('p_fire_within_8')
+        exposure = max(p_fire if p_fire is not None else 0., d['downwind'], 1. if d['distance'] <= NEAR_CELLS else 0.)
+        why = []
+        if p_fire is not None and p_fire >= .5:
+            why.append(f'fire within {NEAR_CELLS} cells in {int(round(p_fire*100))}% of possible worlds')
+        if d['downwind'] >= .5:
+            why.append('downwind of the believed fire')
+        if d['distance'] <= NEAR_CELLS:
+            why.append(f"{d['distance']} cells from the believed fire")
+        if not why:
+            continue
+        ranked.append(dict(district_id=key, status=d['status'], people=d.get('people'), p_fire_within_8=p_fire,
+                           downwind=d['downwind'], distance=d['distance'], exposure=round(exposure, 2), why=why))
+    ranked.sort(key=lambda r: (-(r['people'] or 0)*r['exposure'], -r['exposure'], r['distance'], r['district_id']))
+    return ranked
+
+
+def describe_front(sig):
+    """Where the fire is being pushed, from belief only."""
+    if not sig['wind_strength']:
+        base = 'calm wind: no preferred front, spread is roughly radial'
+    else:
+        base = f"wind pushes the fire {wind_direction(sig['wind'])} ({sig['wind'][0]},{sig['wind'][1]}): work the {wind_direction(sig['wind'])}-facing leading edge"
+    if sig['fire_confirmed'] and sig['fire_centroid']:
+        return f"{base}; {sig['believed_fire_cells']} burning cells observed around ({sig['fire_centroid'][0]},{sig['fire_centroid'][1]})"
+    return f'{base}; fire not yet observed, only the smoke report'
+
+
+def brief(sig, cases, lessons, forecast_view=None, divergence=None):
+    """Bounded, auditable decision-time context: what the agent may learn from, and what it is not."""
+    priority = rank_districts(sig, forecast_view)
+    compact_cases = []
+    for c in (cases or [])[:BRIEF_CASES]:
+        compact_cases.append(dict(decision_id=c['decision_id'], similarity_distance=c['similarity_distance'],
+                                  matching_labels=len(c['matching_labels']), differs=(c['differing_labels']['current_only']+c['differing_labels']['case_only'])[:6],
+                                  did=[_clip(d, 60) for d in c['did'][:4]], regret=c['regret'], gap_type=c['gap_type'],
+                                  oracle_preferred=[_clip(d, 60) for d in (c['oracle_preferred'] or [])[:4]] or None,
+                                  root_cause=_clip(c['root_cause']), lesson=_clip(c['lesson'])))
+    compact_lessons = [dict(id=l['id'], rule=_clip(l['rule']), relevance=l['relevance']) for l in (lessons or [])[:5]]
+    fc = None
+    if forecast_view:
+        fc = dict(horizon=forecast_view.get('horizon'), branches=forecast_view.get('branches'), dispersion=forecast_view.get('dispersion'),
+                  expected_burning_cells=forecast_view.get('expected_burning_cells'),
+                  threatened=[k for k, v in (forecast_view.get('districts') or {}).items() if (v.get('p_fire_within_8') or 0) >= .5])
+    dv = None
+    if divergence and divergence.get('divergent'):
+        dv = dict(distance=divergence.get('distance'), threshold=divergence.get('threshold'), what_changed=(divergence.get('what_changed') or [])[:4])
+    out = dict(version=BRIEF_VERSION, role=BRIEF_ROLE,
+               situation=dict(tick=sig['tick'], event_type=sig['event_type'], labels=sig.get('labels') or situation_labels(sig),
+                              unwarned=sorted(k for k, d in sig['districts'].items() if d['status'] == 'unwarned')),
+               priority_districts=priority, downwind_front=describe_front(sig),
+               cases=compact_cases, lessons=compact_lessons, forecast=fc, divergence=dv)
+    out['text'] = brief_text(out)
+    return out
+
+
+def brief_text(b):
+    """One prompt-ready paragraph, hard-capped; the structured brief is the source of truth."""
+    parts = []
+    if b['priority_districts']:
+        parts.append('Priority (evidence): '+'; '.join(f"{r['district_id']} ({r['people']} people, {r['why'][0]})" for r in b['priority_districts'][:3])+'.')
+    elif b['situation']['unwarned']:
+        parts.append('Unwarned but not exposed yet: '+', '.join(b['situation']['unwarned'])+'.')
+    else:
+        parts.append('No unwarned districts remain.')
+    parts.append('Front: '+b['downwind_front']+'.')
+    if b['divergence']:
+        parts.append('Forecast broke: '+'; '.join(b['divergence']['what_changed'])+'. Revise the affected assignments first.')
+    for c in b['cases']:
+        line = f"Case {c['decision_id']} (distance {c['similarity_distance']}): did {', '.join(c['did']) or 'nothing recorded'}; regret {c['regret']}"
+        if c['oracle_preferred']:
+            line += f"; hindsight preferred {', '.join(c['oracle_preferred'])}"
+        if c['root_cause']:
+            line += f"; cause: {c['root_cause']}"
+        if c['differs']:
+            line += f"; differs now: {', '.join(c['differs'])}"
+        parts.append(line+'.')
+    if b['lessons']:
+        parts.append('Lessons: '+' | '.join(l['rule'] for l in b['lessons'][:3]))
+    closing = 'Cases and lessons are evidence, not orders.'
+    budget, kept = BRIEF_TEXT_CHARS-len(closing)-1, []
+    for part in parts:
+        if len(part) >= budget:
+            part = part[:budget-2].rstrip()+'…'
+        budget -= len(part)+1
+        kept.append(part)
+        if budget <= 1:
+            break
+    return ' '.join(kept+[closing])
+
+
+def dispatch_fields(b):
+    """The four mission inputs of the fleet workflow, filled from the brief when no dispatcher supplied them."""
+    top = b['priority_districts'][:3]
+    if top:
+        mission = 'Protect exposed unwarned people first: '+', '.join(f"{r['district_id']} ({r['why'][0]})" for r in top)+'. Then contain the leading downwind front from a validated safe position.'
+    elif b['situation']['unwarned']:
+        mission = 'No district is exposed yet: contain the leading downwind front from a validated safe position and keep observing the approaches to '+', '.join(b['situation']['unwarned'][:3])+'.'
+    else:
+        mission = 'All districts warned or beyond warning: contain the leading downwind front from a validated safe position and keep observing.'
+    constraints = b['text']
+    return dict(mission=mission, priority_districts=json.dumps([r['district_id'] for r in top]),
+                downwind_front=b['downwind_front'], tactical_constraints=constraints)
 
 
 def credit(box, lesson_id):

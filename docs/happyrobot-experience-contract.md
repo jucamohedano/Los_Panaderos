@@ -94,6 +94,37 @@ These are proposed fields. The live response parser and dashboard do not yet
 preserve/display this attribution; the current interface reports only what was
 sent. Wire and validate the full output path before claiming confirmed use.
 
+## Callable workflow: Experiencia Los Panaderos (built, unpublished)
+
+Folder HackSpain, workspace hackspainteam9, workflow id `01a0bcfb-6ffd-76b6-82db-a13f57c58dd7`.
+It is a function the simulator calls before Los Panaderos; no existing workflow was edited.
+
+```mermaid
+flowchart LR
+  A[Peticion de experiencia<br/>webhook: event_id, event_type, incident_id,<br/>sim_time, world_state, 4 mission fields] --> B[Leer resumen de experiencia<br/>Python: parse episode_brief,<br/>bound cases/lessons, deterministic draft]
+  B --> C[Juzgar precedentes<br/>AI Extract: which cases apply,<br/>mission, priority_districts, confidence]
+  C --> D[Resultado de experiencia<br/>Python: caller fields win → agent if confidence ≥ .5<br/>and valid districts → deterministic fallback;<br/>source + evidence]
+```
+
+Output (result node `01a0bcfb-7044-7b0f-bf53-4e831e921bf7`):
+
+```jsonc
+{ "mission": "...", "priority_districts": "farm, town_north", "downwind_front": "...", "tactical_constraints": "...",
+  "source": { "mission": "agent", "priority_districts": "caller", "downwind_front": "deterministic", "tactical_constraints": "deterministic" },
+  "agent_used": true, "confidence": 0.82, "applicable_cases": "41: same downwind farm unwarned", "set_aside": "57: no truck in the current fleet" }
+```
+
+Simulator side: `simulator/curator.py`, enabled with `LP_EXPERIENCE_WORKFLOW=1`, off by default.
+Only the fields above are sent (no drone telemetry, no hidden truth). A failed, incomplete or
+malformed run raises inside the client; the controller logs "Experience workflow skipped" and
+fills the fields from the deterministic brief. The dashboard shows "curado por HappyRobot
+(confianza x)" or "HappyRobot dejó el resumen determinista" next to the brief.
+
+Verified: node-level `test_workflow` runs succeed for all three processing nodes; a local
+re-implementation of the two Python nodes passes seven cases (real brief, invalid districts,
+caller precedence, empty brief, malformed confidence, clipping). Not verified: a live
+development run with the real AI node judging a real brief, and any effect on fleet decisions.
+
 ## Optional workflow: candidate plans, evaluated by the simulator
 
 Only build this if there is time after one live run with the fields above.

@@ -40,17 +40,55 @@ def hold_agent(sim, state, box):
     return hold_orders(sim)
 
 
+PASSIVE = ('hold', 'continue')
+
+
+def intents(plan):
+    """What a plan meant, independent of which vehicle carried it: (command, district) pairs."""
+    return [(o['command'], o.get('district_id') or '')
+            for key in ('extinguisher_orders', 'scout_orders', 'truck_orders') for o in plan.get(key) or []
+            if o['command'] not in PASSIVE]
+
+
+def reground(sim, plan):
+    """Re-express a historical plan's intents with the current fleet's validated options.
+
+    Vehicle ids, counts and safe positions belong to the old incident; the intent
+    (evacuate this district, contain, scout the smoke) is what transfers. Returns None
+    when no intent can be carried by any vehicle available now."""
+    pending = intents(plan)
+    parts, carried = [], 0
+    for key, options in oracle.vehicle_options(sim):
+        chosen = options[0]
+        for intent in pending:
+            match = next((o for o in options if o['command'] == intent[0] and (o.get('district_id') or '') == intent[1]), None)
+            if match:
+                chosen = match
+                pending.remove(intent)
+                carried += 1
+                break
+        parts.append((key, chosen))
+    return oracle.assemble(parts) if carried else None
+
+
 def experience_agent(sim, state, box):
-    """Adopt the oracle-preferred plan of the closest similar case when it applies here."""
+    """Adopt the hindsight-best plan of the closest graded similar case when it applies here.
+
+    A case with regret 0 is as useful as a corrected mistake: its best plan is what was done.
+    The literal plan is used when the current fleet can execute it; otherwise its intents are
+    re-grounded on the vehicles available now."""
     for case in state.get('similar_cases') or []:
-        if case['similarity_distance'] > ADOPT_DISTANCE or not case.get('regret') or not case.get('oracle_preferred'):
+        if case['similarity_distance'] > ADOPT_DISTANCE or case.get('regret') is None:
             continue
         evaluation = box.evaluation(case['decision_id']) or {}
         best = evaluation.get('best_decision')
-        if best and oracle.is_valid(sim, best):
-            plan = copy.deepcopy(best)
-            plan['mission'] = f"from case {case['decision_id']} (regret {case['regret']})"
-            return plan
+        if not best:
+            continue
+        for plan, how in ((best, 'copied'), (reground(sim, best), 're-grounded')):
+            if plan and oracle.is_valid(sim, plan):
+                plan = copy.deepcopy(plan)
+                plan['mission'] = f"from case {case['decision_id']} (regret {case['regret']}, {how})"
+                return plan
     return hold_orders(sim)
 
 
@@ -70,6 +108,7 @@ def run_episode(box, agent, seed=9, decisions=3, horizon=8, oracle_budget=10., f
         payload = sim.payload(event)
         state = json.loads(payload['world_state'])
         state['similar_cases'] = cases
+        state['episode_brief'] = experience.brief(sig, cases, lessons)
         payload['world_state'] = json.dumps(state)
         decision = agent(sim, state, box)
         snapshot = copy.deepcopy(sim)

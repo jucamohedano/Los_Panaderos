@@ -157,8 +157,10 @@ the label's downwind threshold is distinct from the oracle's cost heuristic.
 `people:no_downwind` means no such exposure in the stored belief signature,
 not a guarantee of safety.
 
-New signatures store `label_version: 1` and `labels`. Retrieval derives labels
-from older signatures too, without a schema migration or invented observations.
+New signatures store `label_version: 2` and `labels` (version 2 measures downwind
+exposure for every district; version 1 zeroed it beyond 40 cells, which hid whole
+towns under a west wind). Retrieval derives labels from older signatures too, without
+a schema migration or invented observations.
 Returned cases include `matching_labels` and `differing_labels` with
 `current_only` and `case_only`. The UI translates them; raw labels and numeric
 `why_similar` terms remain inspectable. An older API response with no labels
@@ -175,11 +177,12 @@ we have shown that those additions improve decisions.
 Use the labels to evaluate concrete changes rather than assume a richer
 taxonomy is sufficient:
 
-1. Test resource and action compatibility before recommending historical
-   alternatives; make missing roles and changed district geometry matter.
-2. Evaluate relative fire location, population weighting, evidence freshness
-   and event relevance in the score. The held-out benchmark already exposes
-   changed-ignition and reduced-fleet failures.
+1. ~~Resource compatibility~~ — done: the fleet term now weighs composition,
+   and replay re-grounds intents on the current fleet
+   ([benchmark](adaptation-evaluation.md), fixes 3–4).
+2. Evaluate evidence freshness and event relevance in the score. Relative fire
+   location is covered (fix 1: downwind exposure beyond 40 cells); the
+   remaining measured gap is a wind memory never saw (west).
 3. Consider diversity across incidents so one incident cannot occupy all three
    result slots. Currently all three can come from one earlier incident.
 4. Add report provenance/freshness labels once a real report inbox exists;
@@ -200,17 +203,19 @@ live path, HappyRobot receives cases as context and chooses its own action.
 There are no gradients, model fine-tuning or automatic copying.
 
 The offline `simulator.episodes.experience_agent` is a deliberately simple
-test policy: it takes the first retrieved case within distance **0.15** with
-positive regret and an available oracle-preferred plan, checks whether that
-plan can be applied now, and copies it. Otherwise it holds. Valid application
-can still involve simulator coordination adjustments, which the benchmark
-records; validity does not establish tactical suitability.
+test policy: it takes the first retrieved graded case within distance **0.15**
+(a regret-0 case counts: its best plan is what was done) and applies the
+hindsight-best plan of that case. If the current fleet cannot execute the
+literal plan (different vehicle ids or counts), the plan's *intents* —
+(command, district) pairs — are re-grounded on the vehicles available now via
+the oracle's validated options (`episodes.reground`). Otherwise it holds.
+Validity does not establish tactical suitability.
 
-Keeping this replay policy provides a reproducible comparator. The held-out
-experiment found it better than hold in 15 of 48 snapshots, tied in 33, and
-inferior to the simple warning heuristic. It did not help in changed-ignition
-or reduced-fleet scenarios. The label update does not establish a new
-performance result; those measurements remain the earlier benchmark.
+Keeping this replay policy provides a reproducible comparator. In the
+[scenario-family benchmark](adaptation-evaluation.md) it matches the warning
+heuristic on every family that memory has seen and falls back to hold under a
+wind memory never saw (west), because the nearest case is beyond the adoption
+distance. It never scored worse than hold.
 
 ## Evaluation, reflections and lessons
 

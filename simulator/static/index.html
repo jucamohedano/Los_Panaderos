@@ -61,7 +61,7 @@
 
 <section class="adapt" id="adaptStrip" aria-labelledby="adaptLbl">
   <div class="adapt-head"><h2 id="adaptLbl" data-i18n="adapt">Adaptación</h2><span data-i18n="adaptHint">Del pronóstico a la experiencia · abre una tarjeta para entenderla</span></div>
-  <div class="adapt-cards">
+  <div class="adapt-cards" id="adaptCards">
     <button type="button" class="adapt-card" id="adaptForecast" aria-haspopup="dialog">
       <span class="adapt-step">01</span><span class="adapt-title" data-i18n="adFuture">¿Qué puede pasar?</span>
       <strong id="adFutureMain">—</strong><small id="adFutureSub" data-i18n="adFutureNone">Sin pronóstico todavía</small>
@@ -77,6 +77,10 @@
     <button type="button" class="adapt-card" id="adaptLearn" aria-haspopup="dialog">
       <span class="adapt-step">04</span><span class="adapt-title" data-i18n="adLearn">¿Qué resultados obtiene?</span>
       <strong id="adLearnMain">—</strong><small id="adLearnSub"></small><span id="adLearnChart" aria-hidden="true"></span>
+    </button>
+    <button type="button" class="adapt-card is-shadow" id="adaptReflex" aria-haspopup="dialog" hidden>
+      <span class="adapt-step">05</span><span class="adapt-title" data-i18n="adReflex">¿Quién decide?</span>
+      <strong id="adReflexMain">—</strong><small id="adReflexSub"></small>
     </button>
   </div>
 </section>
@@ -195,7 +199,7 @@
   <details id="postmortemPanel"><summary id="postmortemLbl" data-i18n="postmortem">Post-mortem · oráculo y reflexión</summary>
     <p class="postmortem-note" data-i18n="postmortemNote">El oráculo evalúa con retrospectiva (conoce el fuego oculto). Nunca decide; solo mide. Promover un parche es humano.</p>
     <div id="lessons"></div>
-    <table id="postmortem"><thead><tr><th>t</th><th data-i18n="pmActual">Real</th><th data-i18n="pmBest">Mejor</th><th data-i18n="pmRegret">Regret</th><th data-i18n="pmGap">Brecha</th><th>s</th><th data-i18n="pmLoop">Bucle</th></tr></thead><tbody></tbody></table>
+    <table id="postmortem"><thead><tr><th>t</th><th data-i18n="pmActual">Real</th><th data-i18n="pmBest">Mejor</th><th data-i18n="pmRegret">Regret</th><th data-i18n="pmGap">Brecha</th><th>s</th><th data-i18n="pmLoop">Bucle</th><th data-i18n="pmReflex">Reflejo Jev (sombra)</th></tr></thead><tbody></tbody></table>
     <div id="patches"></div>
   </details>
   <details id="learningPanel"><summary id="learningLbl" data-i18n="learning">Experiencia y resultados</summary>
@@ -207,6 +211,7 @@
     </div>
     <section id="learningExperience" aria-labelledby="casesTitle">
       <div class="learning-section-head"><div><h3 id="casesTitle" data-i18n="casesTitle">Casos para la última decisión</h3><p data-i18n="casesHelp">Situaciones anteriores parecidas a la actual. Son referencias: el agente decide si aplican.</p></div><span class="evidence-badge" data-i18n="sentNotUsed">Enviados · uso no confirmado</span></div>
+      <blockquote class="brief-sent" id="briefSent" hidden><span class="evidence-badge" data-i18n="briefTitle">Resumen enviado al agente</span><p id="briefText"></p><small id="briefMeta"></small></blockquote>
       <div class="learning-empty" id="experienceEmpty" data-i18n="experienceWaiting">Los casos aparecerán tras la primera decisión. Sin precedentes, el agente usa la información actual.</div>
       <div id="experienceUsed"></div>
       <details class="learning-details" id="lessonDetails"><summary id="lessonSummary" data-i18n="savedLessons">Reglas guardadas</summary>
