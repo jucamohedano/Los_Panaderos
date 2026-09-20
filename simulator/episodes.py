@@ -1,6 +1,6 @@
 """Episode harness: replay the same scenario several times and measure whether experience lowers regret.
 
-This is the learning-curve proof for the demo and for CI. It runs the incident loop
+This is a mock replay experiment for the demo and CI. It runs the incident loop
 headless (no HTTP, no HappyRobot): for each decision it builds the payload exactly as
 the controller does (possible worlds are skipped for speed, similar cases and relevant
 lessons are included), asks an agent for a decision, freezes it in the black box, and
@@ -10,8 +10,8 @@ only thing that changes between episodes is the experience available to the agen
 Two agents are provided. `hold_agent` never learns and sets the baseline.
 `experience_agent` mimics what we ask HappyRobot to do with `similar_cases`: when a
 close past case says the oracle preferred another plan and that plan is still valid,
-it adopts it; otherwise it holds. The gap between the two curves is the value of the
-replay buffer, independent of any language model.
+it adopts it; otherwise it holds. This tests historical plan copying, not actual
+HappyRobot learning or the causal benefit of sending cases to a language model.
 
     python -m simulator.episodes --episodes 3
 """

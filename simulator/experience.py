@@ -13,9 +13,9 @@ belief world only (wind, believed fire, per-district exposure, fleet availabilit
 minutes since the alarm). The weights favour what matters in the first minutes of a
 wildfire: who is unwarned downwind and what is idle.
 
-Lessons get the same treatment: each carries the signature it was learned in, is
-retrieved by relevance rather than recency, and is credited with the regret of the
-decisions it was shown to. A lesson that does not lower regret is retired.
+Lessons carry the signature they were learned in and are ranked by relevance
+rather than recency. Exposed/unexposed regret can trigger retirement, but that
+observational comparison does not establish whether the lesson helped.
 """
 import json
 import math
@@ -32,6 +32,7 @@ MAX_CASE_DISTANCE = .25   # cases further than this are not shown: unrelated exp
 LESSON_CONFIDENCE = .5    # tier-1 lessons below this are logged but never enter a payload
 LESSON_MIN_USES = 3       # credit assignment needs this many shown decisions before judging a lesson
 LESSON_RETIRE_MARGIN = 10.  # retire when decisions shown the lesson regret this much more than those without
+LABEL_VERSION = 1
 
 
 def _mean(values):
@@ -60,9 +61,28 @@ def signature(sim, event_type='local_observation'):
                  idle_scouts=sum(v['status'] in idle for v in sim.scouts),
                  idle_extinguishers=sum(v['status'] in idle for v in sim.extinguishers),
                  trucks_mobile=sum(v['status'] not in ('at_station', 'mobilizing') for v in sim.trucks))
-    return dict(tick=sim.tick, event_type=event_type, wind=[sim.wind[0], sim.wind[1]], wind_strength=round(strength, 2),
-                believed_fire_cells=len(fire), fire_confirmed=bool(fire), fire_centroid=[round(sum(p[0] for p in fire)/len(fire), 1), round(sum(p[1] for p in fire)/len(fire), 1)] if fire else None,
-                districts=districts, fleet=fleet)
+    sig = dict(tick=sim.tick, event_type=event_type, wind=[sim.wind[0], sim.wind[1]], wind_strength=round(strength, 2),
+               believed_fire_cells=len(fire), fire_confirmed=bool(fire), fire_centroid=[round(sum(p[0] for p in fire)/len(fire), 1), round(sum(p[1] for p in fire)/len(fire), 1)] if fire else None,
+               districts=districts, fleet=fleet)
+    return dict(sig, label_version=LABEL_VERSION, labels=situation_labels(sig))
+
+
+def situation_labels(sig):
+    """Version-one labels derived solely from the stored belief signature."""
+    labels = ['phase:early' if sig['tick'] < EARLY_TICKS else 'phase:later',
+              f"event:{sig['event_type']}", 'fire:observed' if sig['fire_confirmed'] else 'fire:unconfirmed']
+    if not sig['wind_strength']:
+        labels.append('wind:calm')
+    else:
+        directions = ('east', 'southeast', 'south', 'southwest', 'west', 'northwest', 'north', 'northeast')
+        direction = math.floor(math.atan2(sig['wind'][1], sig['wind'][0])/(math.pi/4)+.5) % 8
+        labels.extend([f'wind:{directions[direction]}', 'wind:strong' if sig['wind_strength'] >= 2 else 'wind:light'])
+    unwarned = [d for d in sig['districts'].values() if d['status'] == 'unwarned']
+    labels.append('people:downwind' if any(d['downwind'] >= .5 for d in unwarned) else 'people:no_downwind')
+    if any(d['distance'] <= NEAR_CELLS for d in unwarned):
+        labels.append('people:nearby')
+    labels.extend(f"fleet:{role}:{sig['fleet'][role]}" for role in ('scouts', 'extinguishers', 'trucks'))
+    return labels
 
 
 def _angle(a, b):
@@ -116,11 +136,16 @@ def _load(raw):
     return json.loads(raw) if raw else None
 
 
-def case_view(row, match):
+def case_view(row, match, current_signature):
     """What the agent gets to see about one past decision."""
     evaluation, outcome, diagnosis, sig = _load(row.get('result_json')), _load(row.get('outcome_json')), _load(row.get('diagnosis_json')), _load(row.get('signature_json'))
     decision = _load(row.get('decision_json')) or {}
+    labels, current_labels = situation_labels(sig), situation_labels(current_signature)
     return dict(decision_id=row['id'], incident_id=row['incident_id'], similarity_distance=match['total'], why_similar=match['terms'],
+                label_version=LABEL_VERSION, labels=labels,
+                matching_labels=[label for label in labels if label in current_labels],
+                differing_labels=dict(current_only=[label for label in current_labels if label not in labels],
+                                      case_only=[label for label in labels if label not in current_labels]),
                 tick=row['tick'], event_type=row['event_type'], wind=sig['wind'] if sig else None,
                 situation={k: dict(status=v['status'], distance=v['distance'], downwind=v['downwind']) for k, v in (sig or {}).get('districts', {}).items()},
                 did=summarise_orders(decision), mission=decision.get('mission'),
@@ -135,13 +160,16 @@ def retrieve(box, sig, k=DEFAULT_K, exclude_incident=None, max_distance=MAX_CASE
     scored = []
     for row in box.cases(exclude_incident):
         other = _load(row.get('signature_json'))
-        if not other:
+        evaluation = _load(row.get('result_json')) or {}
+        regret = evaluation.get('regret')
+        if not other or evaluation.get('truncated') or isinstance(regret, bool) \
+                or not isinstance(regret, (int, float)) or not math.isfinite(regret):
             continue
         match = signature_distance(sig, other)
         if match['total'] <= max_distance:
             scored.append((match['total'], -(row['id']), row, match))
     scored.sort(key=lambda t: (t[0], t[1]))
-    return [case_view(row, match) for _, _, row, match in scored[:k]]
+    return [case_view(row, match, sig) for _, _, row, match in scored[:k]]
 
 
 def relevant_lessons(box, sig, limit=5):
@@ -163,7 +191,7 @@ def credit(box, lesson_id):
 
 
 def review_lessons(box):
-    """Retire lessons that have been shown often enough and made things worse. Returns the retired ids."""
+    """Retire lessons whose exposed mean regret exceeds the comparison margin."""
     retired = []
     for r in box.lesson_rows():
         c = credit(box, r['id'])

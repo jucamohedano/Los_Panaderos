@@ -48,7 +48,7 @@ test('adaptive summary precedes maps and separates sent experience from confirme
   h.run('render(s)');
   assert.match(h.elements.get('adFutureMain').textContent, /8/);
   assert.match(h.elements.get('adFutureSub').textContent, /75%/);
-  assert.match(h.elements.get('adMemoryMain').textContent, /1 casos enviados/);
+  assert.match(h.elements.get('adMemoryMain').textContent, /1 caso enviado/);
   assert.match(h.elements.get('adMemorySub').textContent, /uso no confirmado/);
   assert.match(h.elements.get('adChangeMain').textContent, /Sin comprobar/);
   h.run("lang='en'; render(s)");
@@ -464,4 +464,64 @@ test('learning panel renders the regret curve, the experience sent and the lesso
   h.handler = request => request.url === '/api/learning' ? response({episodes: [], lessons: [], experience: null}) : response(h.server);
   await h.run('renderLearning()');
   assert.match(h.elements.get('learningCurve').textContent, /Sin episodios/); assert.equal(tbody.innerHTML, ''); assert.equal(h.elements.get('experienceUsed').innerHTML, '');
+});
+
+test('experience and results cards choose distinct views and keyboard buttons expose selection', async () => {
+  const h = await harness();
+  assert.equal(h.run('I18N.es.adapt'), 'Adaptación');
+  assert.equal(h.run('I18N.en.adapt'), 'Adaptation');
+  h.elements.get('adaptMemory').click();
+  assert.equal(h.elements.get('learningExperience').hidden, false);
+  assert.equal(h.elements.get('learningResults').hidden, true);
+  h.elements.get('showResults').click();
+  assert.equal(h.elements.get('learningExperience').hidden, true);
+  assert.equal(h.elements.get('showResults').getAttribute('aria-pressed'), 'true');
+  h.elements.get('adaptLearn').click();
+  assert.equal(h.elements.get('learningResults').hidden, false);
+  h.elements.get('showExperience').click();
+  assert.equal(h.elements.get('showResults').getAttribute('aria-pressed'), 'false');
+});
+
+test('case labels expose fleet differences safely and unchanged polling preserves rendered nodes', async () => {
+  const h = await harness(), element = h.elements.get('experienceUsed');
+  let markup = '', writes = 0;
+  Object.defineProperty(element, 'innerHTML', {get: () => markup, set: value => {markup = value; writes++;}});
+  const learning = {episodes: [], lessons: [], experience: {cases: [{decision_id: 2, regret: 10,
+    matching_labels: ['wind:north', '<img src=x onerror=alert(1)>'],
+    differing_labels: {current_only: ['fleet:scouts:1'], case_only: ['fleet:scouts:2']},
+    did: ['scout-1: hold'], oracle_preferred: ['scout-1: patrol']}]}};
+  h.handler = () => response(learning);
+  await h.run('renderLearning()'); await h.run('renderLearning()');
+  assert.equal(writes, 1);
+  assert.match(markup, /1 explorador/); assert.match(markup, /2 exploradores/);
+  assert.match(markup, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.doesNotMatch(markup, /<img/);
+  h.run("lang='en'; applyLang()");
+  assert.match(markup, /1 scout</); assert.match(markup, /2 scouts</);
+  assert.match(markup, /Wind toward north/);
+  assert.equal(writes, 2);
+  h.handler = () => {throw Error('offline');};
+  await h.run('renderLearning()');
+  assert.equal(markup, '');
+  assert.equal(h.elements.get('learningStatus').hidden, false);
+  h.handler = () => response(learning);
+  await h.run('renderLearning()');
+  assert.match(markup, /Case #2/);
+  assert.equal(h.elements.get('learningStatus').hidden, true);
+});
+
+test('a delayed learning response uses current language and renders accessible finite results only', async () => {
+  const h = await harness(), gate = deferred();
+  h.handler = () => gate.promise;
+  const pending = h.run('renderLearning()');
+  h.run("lang='en'; applyLang()");
+  gate.resolve(response({episodes: [{graded: 1, mean_regret: 0}, {graded: 1, mean_regret: null}], lessons: [],
+    experience: {cases: [{decision_id: 9, regret: 0, did: ['scout-1: hold']}]}}));
+  await pending;
+  assert.match(h.elements.get('experienceUsed').innerHTML, /This record has no context labels/);
+  assert.match(h.elements.get('experienceUsed').innerHTML, /No better alternative recorded/);
+  const chart = h.elements.get('learningCurve').innerHTML;
+  assert.match(chart, /role="img" aria-label="Mean cost gap: 0/);
+  assert.doesNotMatch(chart, /NaN|null/);
+  assert.match(chart, /Evaluated decisions/);
 });

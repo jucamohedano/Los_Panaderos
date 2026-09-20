@@ -30,6 +30,10 @@ Both are inside `world_state` (JSON string) and optional; old versions ignore th
 "similar_cases": [ {
   "decision_id": 41, "similarity_distance": 0.09,
   "why_similar": { "phase": 0.0, "wind": 0.1, "fire": 0.0, "districts": 0.12, "fleet": 0.0 },
+  "label_version": 1,
+  "labels": ["phase:early", "event:farmer_call", "fire:unconfirmed", "wind:north", "wind:light", "people:downwind", "fleet:scouts:2", "fleet:extinguishers:1", "fleet:trucks:1"],
+  "matching_labels": ["phase:early", "event:farmer_call", "fire:unconfirmed", "wind:north", "wind:light", "people:downwind", "fleet:extinguishers:1", "fleet:trucks:1"],
+  "differing_labels": {"current_only": ["fleet:scouts:1"], "case_only": ["fleet:scouts:2"]},
   "tick": 2, "event_type": "farmer_call", "wind": [0, -1],
   "situation": { "farm": { "status": "unwarned", "distance": 20.2, "downwind": 0.99 }, "town_north": { "status": "unwarned", "distance": 40, "downwind": 0.0 } },
   "did": ["drone-1: hold", "scout-1: hold", "engine-1: continue"], "mission": "wait for confirmation",
@@ -46,6 +50,13 @@ Historical cases include explicitly retrospective outcomes and oracle preference
 they are not fresh observations about this incident. Cases never come
 from the current incident; at most 3 cases at distance <= 0.25; `did` and
 `oracle_preferred` are short strings, never raw orders.
+
+Labels are derived from belief signatures and explain the existing numeric
+ranking; they do not enforce compatibility. Inspect differences before applying
+a precedent, especially missing resources. Explicitly truncated evaluations and
+invalid regret are excluded from retrieval; legacy grades without a truncation
+flag remain eligible. See the [adaptation guide](adaptation-and-learning.md) for
+the vocabulary, score and design rationale.
 
 ## Prompt section to add (draft dispatch version; tactical subset in fleet agents)
 
