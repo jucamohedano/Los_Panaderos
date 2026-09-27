@@ -8,7 +8,17 @@ on a copy, and a routing verdict says whether a gated cascade *would* have appli
 
 Shadow only. The controller records the verdict in the black box and the oracle grades it with the
 same hindsight cost as the real decision, so the dashboard can show whether the reflex would have
-helped before anyone lets it act. Off without OPENROUTER_API_KEY or with REFLEX_MODE=off.
+helped before anyone lets it act. Off with REFLEX_MODE=off.
+
+Backends. ``JEV_BACKEND`` selects who answers the typed questions:
+
+* ``stub`` (default): ``StubBackend`` never calls the network. It answers every vehicle with the
+  passive default candidate at confidence 0.0 and asks for Central (noul 1.0), so ``assemble`` and
+  ``route`` run end-to-end and the verdict is always routed to ``central``. The verdict carries
+  ``backend='stub'``, ``stub=True`` and ``model='stub/jev-unavailable'`` so it can never pass for
+  a real Jev answer in the black box or on the dashboard.
+* ``openrouter``: ``OpenRouterBackend`` posts to the OpenRouter decisions API with
+  ``OPENROUTER_API_KEY`` (the model needs account credits).
 """
 import copy
 import json
@@ -24,6 +34,10 @@ MODEL = 'typesafe/jev-1.13'
 URL = 'https://openrouter.ai/api/alpha/decisions'
 ENV_KEY = 'OPENROUTER_API_KEY'
 ENV_MODE = 'REFLEX_MODE'
+ENV_BACKEND = 'JEV_BACKEND'
+BACKENDS = ('stub', 'openrouter')
+STUB_MODEL = 'stub/jev-unavailable'
+STUB_REASON = 'stub backend: synthetic answer, no model was called'
 TIMEOUT = 3.0
 CONFIDENCE = .7          # below this a gated cascade escalates to Central
 ESCALATE = .5            # Jev's own "needs Central" noul at or above this escalates
@@ -46,15 +60,20 @@ def load_env_key():
             return
 
 
+def backend_name():
+    value = os.environ.get(ENV_BACKEND, '').strip().lower()
+    return value if value in BACKENDS else 'stub'
+
+
 def mode():
     value = os.environ.get(ENV_MODE, '').strip().lower()
     if value in ('off', 'shadow'):
         return value
-    return 'shadow' if api_key() else 'off'
+    return 'shadow' if backend().available() else 'off'
 
 
 def enabled():
-    return mode() != 'off' and bool(api_key())
+    return mode() != 'off' and backend().available()
 
 
 def describe(sim, event_type='local_observation', brief=None):
@@ -130,8 +149,53 @@ def _post(body, key, timeout):
         return json.loads(resp.read().decode())
 
 
+class JevBackend:
+    """Answers the typed questions for one frozen state. ``ask`` returns the decisions-API shape."""
+    name = None
+    stub = False
+
+    def available(self):
+        return True
+
+    def ask(self, state, qs, key, timeout=TIMEOUT):
+        raise NotImplementedError
+
+
+class OpenRouterBackend(JevBackend):
+    name = 'openrouter'
+
+    def available(self):
+        return bool(api_key())
+
+    def ask(self, state, qs, key, timeout=TIMEOUT):
+        if not key:
+            raise RuntimeError('reflex disabled: no key')
+        return _post(dict(model=MODEL, state=state, questions=qs), key, timeout)
+
+
+class StubBackend(JevBackend):
+    """Offline placeholder: passive default per vehicle, zero confidence, always asks for Central."""
+    name = 'stub'
+    stub = True
+
+    def ask(self, state, qs, key=None, timeout=TIMEOUT):
+        answers = {}
+        for vid, q in qs.items():
+            if q['type'] == 'choice':
+                labels = list(q['criteria'])
+                answers[vid] = dict(choice=labels[0], confidence=0., probabilities={lab: 0. for lab in labels})
+        answers['escalate'] = dict(noul=1.)
+        answers['threat'] = dict(score=None)
+        return dict(model=STUB_MODEL, stub=True, answers=answers)
+
+
+def backend(name=None):
+    name = name or backend_name()
+    return OpenRouterBackend() if name == 'openrouter' else StubBackend()
+
+
 def ask(state, qs, key, timeout=TIMEOUT):
-    return _post(dict(model=MODEL, state=state, questions=qs), key, timeout)
+    return backend().ask(state, qs, key, timeout)
 
 
 def _command_confidence(answer, lookup, choice):
@@ -194,7 +258,8 @@ def summarize(decision):
 def decide(sim, event_type='local_observation', brief=None, key=None, timeout=TIMEOUT):
     """Shadow verdict for the frozen world: what Jev would order, how sure it is, and whether a cascade would let it act."""
     key = key or api_key()
-    if not key:
+    who = backend()
+    if not who.stub and not key:
         raise RuntimeError('reflex disabled: no key')
     start = time.monotonic()
     options = oracle.vehicle_options(sim)
@@ -210,7 +275,11 @@ def decide(sim, event_type='local_observation', brief=None, key=None, timeout=TI
     escalate = float(escalate) if isinstance(escalate, (int, float)) and math.isfinite(escalate) else None
     threat = answers.get('threat', {})
     verdict, reasons = route(decision, confidence, escalate, unknown, valid)
-    return dict(mode='shadow', model=raw.get('model', MODEL), route=verdict, reasons=reasons, decision=decision, orders=summarize(decision),
+    if who.stub:
+        verdict, reasons = 'central', [STUB_REASON]+reasons
+        decision.update(mission='jev reflex STUB (no model called, not a verdict)', drone_reason=STUB_REASON)
+    return dict(mode='shadow', backend=who.name, stub=who.stub, model=raw.get('model', MODEL), route=verdict, reasons=reasons,
+                decision=decision, orders=summarize(decision),
                 confidence=round(confidence, 3), escalate=escalate, valid=valid,
                 threat=dict(score=threat.get('score'), label=THREAT[min(len(THREAT)-1, max(0, int(round(threat['score']))))] if isinstance(threat.get('score'), (int, float)) else None),
                 latency_ms=int((time.monotonic()-start)*1000), questions=len(qs), state_chars=len(json.dumps(state)))
