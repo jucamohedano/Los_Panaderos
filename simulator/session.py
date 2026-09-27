@@ -7,10 +7,12 @@ try:
     from .engine import Simulation
     from .policy import DeterministicFleetPolicy
     from .operational_state import build_state
+    from . import comms
 except ImportError:
     from engine import Simulation
     from policy import DeterministicFleetPolicy
     from operational_state import build_state
+    import comms
 
 
 class SimulatorSession:
@@ -20,6 +22,7 @@ class SimulatorSession:
     def __init__(self,sim=None,policy=None,now_ms=None):
         self.sim=sim or Simulation(drone_count=2)
         self.policy=policy or DeterministicFleetPolicy()
+        self.comms=comms.policy()
         self.auto=False
         self.running=False
         self.speed=2
@@ -41,7 +44,7 @@ class SimulatorSession:
             replay=False,live_tick=self.sim.tick,connected=True,error=self.error,workflow_url=None,
             workflow_calls=self.decision_count,decisions=copy.deepcopy(self.decision_log[-100:]),
             latency=0,run_evidence=json.dumps(self.last_decision,ensure_ascii=False,indent=2) if self.last_decision else '',
-            timings={},optimistic=self.optimistic,policy_mode='deterministic')
+            timings={},optimistic=self.optimistic,policy_mode='deterministic',comms_policy=self.comms.name)
 
     def shared_state(self):return build_state(self.sim)
 
@@ -97,14 +100,26 @@ class SimulatorSession:
             result=self.sim.apply(decision,payload['event_id'],payload['incident_id'],self.sim.tick)
         except ValueError as exc:
             return self._reject_decision(event,exc,payload,decision)
-        self.sim.record_dispatch(dict(decision='deterministic_fleet_policy',justificacion=decision['reason'],criticidad='rule-based',avisos_lanzados=[],destinatarios=[]))
+        applied=self._communicate(decision,event)
+        avisos=[f"{c['kind']}:{c.get('action') or c['channel']}→{c.get('district_id') or c.get('contact_name')} [{c['policy_source']}]" for c in applied]
+        destinatarios=[self.sim.groups[c['district_id']]['name'] if c['kind']=='zone_alert' else c['contact_name'] for c in applied]
+        self.sim.record_dispatch(dict(decision='deterministic_fleet_policy',justificacion=decision['reason'],criticidad='rule-based',avisos_lanzados=avisos,destinatarios=destinatarios))
         self.sim.pending_decision_event=None
         record=dict(event_id=payload['event_id'],trigger=event,tick=self.sim.tick,status='accepted',
             mission=str(decision.get('mission',''))[:500],reason=str(decision.get('reason',''))[:1000],
-            orders=self._orders(decision),result=copy.deepcopy(result))
+            orders=self._orders(decision),result=copy.deepcopy(result),communications=copy.deepcopy(applied))
         self.decision_count+=1;self.decision_log=(self.decision_log+[record])[-100:]
         self.next_decision=self.sim.tick+16;self.last_decision=copy.deepcopy(record);self.error=None
         return decision
+
+    def _communicate(self,decision,event):
+        """Simulated Central messaging after an accepted fleet decision. Never breaks the decision loop."""
+        try:
+            messages=[m for m in self.comms.decide(self.sim,decision,event) if isinstance(m,dict) and m.get('kind') in comms.VALID_KINDS]
+            return comms.attach_provenance(self.sim.apply_communications(messages),comms.source_of(self.comms))
+        except Exception as exc:
+            self.sim.log('system',f'Communications policy ({self.comms.name}) failed, no messages sent: {str(exc)[:200]}')
+            return []
 
     def step_once(self):
         self.sim.step()
