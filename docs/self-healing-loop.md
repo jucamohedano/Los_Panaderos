@@ -160,7 +160,8 @@ same for both:
 | `JEV_BACKEND` | class | what happens |
 |---|---|---|
 | `stub` (default, also for unset/unknown values) | `StubBackend` | No network. Every vehicle gets its passive default candidate at confidence 0.0, `escalate` noul is 1.0, threat is unknown. `assemble`/`route` run normally and the verdict is always `route: central` with the first reason `stub backend: synthetic answer, no model was called`. The record carries `backend: "stub"`, `stub: true`, `model: "stub/jev-unavailable"`; `BlackBox.reflex_summary()` counts them under `stub`. |
-| `openrouter` | `OpenRouterBackend` | The real call: `POST https://openrouter.ai/api/alpha/decisions` with `typesafe/jev-1.13`, bearer `OPENROUTER_API_KEY`, 3 s timeout. **This model is not free; the account currently has no credits, so it fails until credits are added.** Without a key the mode is `off` and `decide()` raises `reflex disabled: no key`. |
+| `openrouter` | `OpenRouterBackend` | The real call: `POST https://openrouter.ai/api/alpha/decisions` with `typesafe/jev-1.13`, bearer `OPENROUTER_API_KEY`, 3 s timeout. **This model is not free; the account currently has no credits, so it fails until credits are added.** Without a key the mode is `off` and `decide()` raises `reflex disabled: no key` (a configuration error, deliberately loud). |
+| `openrouter`, call fails | `OpenRouterBackend` (fail-closed) | Any transport error, HTTP error (401/402/429/5xx), timeout or malformed body **never raises**: the backend substitutes the same synthetic answers as the stub and `decide()` returns `route: central`, `confidence: 0.0`, `unavailable: true`, `error: "<short cause>"` (e.g. `HTTP 402 Payment Required`), first reason `jev backend unavailable: <cause>`, `model: typesafe/jev-1.13`, `stub: false`. `reflex_summary()` counts them under `unavailable`, separately from `stub`, so "no credits" and "we chose the stub" stay distinguishable. |
 
 To switch Jev on for real, once the OpenRouter account has credits:
 
@@ -170,7 +171,11 @@ export OPENROUTER_API_KEY=<your key>  # or keep it in the gitignored .env; refle
 # optional: REFLEX_MODE=shadow (default when a key is present) | off
 ```
 
-A stub verdict must never be read as Jev's opinion: check `stub`/`backend` before using `route`,
+Every verdict therefore carries three provenance fields: `backend` (`stub`|`openrouter`), `stub`
+(we never asked a model) and `unavailable` (we asked and it failed; see `error`). A real Jev
+opinion is exactly `stub == false and unavailable == false`.
+
+A stub or unavailable verdict must never be read as Jev's opinion: check those flags before using `route`,
 `confidence` or `agreement` as evidence. `REFLEX_MODE=off` disables the shadow entirely, stub or
 not. Route is *central* whenever confidence < 0.7 on the chosen kind of order,
 `escalate` ≥ 0.5, any order is high-stakes (`evacuate_*`, `attack_sector`, `contain`), a choice
@@ -205,6 +210,7 @@ nothing is auto-published. The same rule bounds the Jev reflex.
 | Obtener experiencia improves fleet mission fields | **not shown** | node tests pass; unpublished, no live run yet |
 | Jev shadow is typed, validated, fail-closed and never applied | measured | `tests/test_reflex.py`; live smoke (Sept 2026, before credits ran out): ~250 ms, routed to Central |
 | Jev stub is offline, routed to Central and marked as stub in the black box | measured | `tests/test_reflex.py::JevBackendTests`; no real verdicts are produced while `JEV_BACKEND=stub` |
+| Real backend fails closed (402 / timeout / malformed → `unavailable`, Central, no exception) | measured | `tests/test_reflex.py::JevBackendTests::test_openrouter_failures_fail_closed_with_unavailable_flag` (simulated, offline) |
 | Jev reflex could safely replace Central on low-stakes orders | **not shown** | needs shadow agreement / regret evidence over many decisions (post-mortem `reflex` column, `/api/learning.reflex`) |
 
 In-context learning here means better *retrieved evidence*, not weight updates; the model is

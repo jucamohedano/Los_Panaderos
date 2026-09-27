@@ -153,6 +153,7 @@ class BlackBox:
         graded = [(a, b) for a, b in graded if b is not None]
         return dict(decisions=len(rows), would_act=sum(r['route'] == 'reflex' for r in rows),
                     stub=sum(bool(json.loads(r['reflex_json'] or '{}').get('stub')) for r in rows),
+                    unavailable=sum(bool(json.loads(r['reflex_json'] or '{}').get('unavailable')) for r in rows),
                     mean_confidence=round(sum(r['confidence'] or 0 for r in rows)/len(rows), 2),
                     mean_agreement=round(sum(r['agreement'] for r in rows if r['agreement'] is not None)/max(1, sum(r['agreement'] is not None for r in rows)), 2),
                     mean_latency_ms=int(sum(r['latency_ms'] or 0 for r in rows)/len(rows)), graded=len(graded),

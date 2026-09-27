@@ -18,7 +18,11 @@ Backends. ``JEV_BACKEND`` selects who answers the typed questions:
   ``backend='stub'``, ``stub=True`` and ``model='stub/jev-unavailable'`` so it can never pass for
   a real Jev answer in the black box or on the dashboard.
 * ``openrouter``: ``OpenRouterBackend`` posts to the OpenRouter decisions API with
-  ``OPENROUTER_API_KEY`` (the model needs account credits).
+  ``OPENROUTER_API_KEY`` (the model needs account credits). It fails closed: any transport or
+  HTTP error (401/402/429/5xx), timeout or malformed body becomes a verdict with
+  ``unavailable=True``, ``error='<short cause>'``, the same synthetic answers as the stub and
+  ``route='central'``. ``stub`` stays False so the dashboard can tell "no credits" from "we
+  chose the stub". Only the disabled case (no key) raises.
 """
 import copy
 import json
@@ -26,6 +30,7 @@ import math
 import os
 from pathlib import Path
 import time
+import urllib.error
 import urllib.request
 
 from . import experience, oracle
@@ -38,6 +43,7 @@ ENV_BACKEND = 'JEV_BACKEND'
 BACKENDS = ('stub', 'openrouter')
 STUB_MODEL = 'stub/jev-unavailable'
 STUB_REASON = 'stub backend: synthetic answer, no model was called'
+UNAVAILABLE_REASON = 'jev backend unavailable'
 TIMEOUT = 3.0
 CONFIDENCE = .7          # below this a gated cascade escalates to Central
 ESCALATE = .5            # Jev's own "needs Central" noul at or above this escalates
@@ -161,6 +167,26 @@ class JevBackend:
         raise NotImplementedError
 
 
+def synthetic_answers(qs):
+    """No-opinion answers: passive default per vehicle, zero confidence, always asks for Central."""
+    answers = {}
+    for vid, q in qs.items():
+        if q['type'] == 'choice':
+            labels = list(q['criteria'])
+            answers[vid] = dict(choice=labels[0], confidence=0., probabilities={lab: 0. for lab in labels})
+    answers['escalate'] = dict(noul=1.)
+    answers['threat'] = dict(score=None)
+    return answers
+
+
+def _cause(exc):
+    if isinstance(exc, urllib.error.HTTPError):
+        return f'HTTP {exc.code} {exc.reason}'.strip()
+    if isinstance(exc, urllib.error.URLError):
+        return f'{type(exc.reason).__name__ if isinstance(exc.reason, Exception) else "URLError"}: {exc.reason}'
+    return f'{type(exc).__name__}: {exc}'.strip(': ')
+
+
 class OpenRouterBackend(JevBackend):
     name = 'openrouter'
 
@@ -168,25 +194,25 @@ class OpenRouterBackend(JevBackend):
         return bool(api_key())
 
     def ask(self, state, qs, key, timeout=TIMEOUT):
+        """Real call; never raises after the key check. Failures return ``unavailable=True`` with synthetic answers."""
         if not key:
             raise RuntimeError('reflex disabled: no key')
-        return _post(dict(model=MODEL, state=state, questions=qs), key, timeout)
+        try:
+            raw = _post(dict(model=MODEL, state=state, questions=qs), key, timeout)
+            if not isinstance(raw, dict) or not isinstance(raw.get('answers'), dict):
+                raise ValueError('malformed response: no answers object')
+            return raw
+        except (urllib.error.URLError, OSError, ValueError, TypeError, KeyError) as exc:
+            return dict(model=MODEL, unavailable=True, error=_cause(exc)[:120], answers=synthetic_answers(qs))
 
 
 class StubBackend(JevBackend):
-    """Offline placeholder: passive default per vehicle, zero confidence, always asks for Central."""
+    """Offline placeholder that never calls the network."""
     name = 'stub'
     stub = True
 
     def ask(self, state, qs, key=None, timeout=TIMEOUT):
-        answers = {}
-        for vid, q in qs.items():
-            if q['type'] == 'choice':
-                labels = list(q['criteria'])
-                answers[vid] = dict(choice=labels[0], confidence=0., probabilities={lab: 0. for lab in labels})
-        answers['escalate'] = dict(noul=1.)
-        answers['threat'] = dict(score=None)
-        return dict(model=STUB_MODEL, stub=True, answers=answers)
+        return dict(model=STUB_MODEL, stub=True, answers=synthetic_answers(qs))
 
 
 def backend(name=None):
@@ -275,10 +301,17 @@ def decide(sim, event_type='local_observation', brief=None, key=None, timeout=TI
     escalate = float(escalate) if isinstance(escalate, (int, float)) and math.isfinite(escalate) else None
     threat = answers.get('threat', {})
     verdict, reasons = route(decision, confidence, escalate, unknown, valid)
+    unavailable = bool(raw.get('unavailable'))
+    error = raw.get('error') if unavailable else None
     if who.stub:
         verdict, reasons = 'central', [STUB_REASON]+reasons
         decision.update(mission='jev reflex STUB (no model called, not a verdict)', drone_reason=STUB_REASON)
-    return dict(mode='shadow', backend=who.name, stub=who.stub, model=raw.get('model', MODEL), route=verdict, reasons=reasons,
+    elif unavailable:
+        why = f'{UNAVAILABLE_REASON}: {error}'
+        verdict, reasons = 'central', [why]+reasons
+        decision.update(mission='jev reflex UNAVAILABLE (backend failed, not a verdict)', drone_reason=why)
+    return dict(mode='shadow', backend=who.name, stub=who.stub, unavailable=unavailable, error=error,
+                model=raw.get('model', MODEL), route=verdict, reasons=reasons,
                 decision=decision, orders=summarize(decision),
                 confidence=round(confidence, 3), escalate=escalate, valid=valid,
                 threat=dict(score=threat.get('score'), label=THREAT[min(len(THREAT)-1, max(0, int(round(threat['score']))))] if isinstance(threat.get('score'), (int, float)) else None),

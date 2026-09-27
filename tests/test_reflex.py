@@ -148,6 +148,57 @@ class JevBackendTests(unittest.TestCase):
         self.assertEqual(sent['key'], 'k'); self.assertEqual(sent['timeout'], 1.5)
         self.assertEqual(sent['body'], dict(model=reflex.MODEL, state={'s': 1}, questions={'q': {}}))
 
+    def test_openrouter_failures_fail_closed_with_unavailable_flag(self):
+        import io
+        import socket
+        import urllib.error
+        sim = scenario()
+        http402 = urllib.error.HTTPError(reflex.URL, 402, 'Payment Required', {}, io.BytesIO(b'{"error":"no credits"}'))
+        cases = [
+            ('402', http402, 'HTTP 402 Payment Required'),
+            ('timeout', socket.timeout('timed out'), 'TimeoutError: timed out'),
+            ('url', urllib.error.URLError(ConnectionRefusedError('refused')), 'ConnectionRefusedError'),
+            ('malformed-json', ValueError('Expecting value'), 'Expecting value'),
+        ]
+        for label, exc, cause in cases:
+            with self.subTest(label), patch.dict('os.environ', REAL, clear=True), patch.object(reflex, '_post', side_effect=exc):
+                v = reflex.decide(sim, 'farmer_call', key='k')   # must not raise
+            self.assertEqual(v['backend'], 'openrouter'); self.assertFalse(v['stub']); self.assertTrue(v['unavailable'])
+            self.assertIn(cause, v['error']); self.assertEqual(v['model'], reflex.MODEL)
+            self.assertEqual(v['route'], 'central'); self.assertEqual(v['confidence'], 0.); self.assertEqual(v['escalate'], 1.)
+            self.assertTrue(v['reasons'][0].startswith(reflex.UNAVAILABLE_REASON+': ')); self.assertIn(cause, v['reasons'][0])
+            self.assertTrue(v['valid']); self.assertIn('UNAVAILABLE', v['decision']['mission']); self.assertTrue(v['orders'])
+            json.dumps(v)
+        # well-formed HTTP 200 but no answers object
+        for body in (dict(model=reflex.MODEL), dict(model=reflex.MODEL, answers='nope'), ['not', 'a', 'dict']):
+            with self.subTest(repr(body)), patch.dict('os.environ', REAL, clear=True), patch.object(reflex, '_post', return_value=body):
+                v = reflex.decide(sim, 'farmer_call', key='k')
+            self.assertTrue(v['unavailable']); self.assertEqual(v['route'], 'central'); self.assertIn('malformed', v['error'])
+        # a healthy answer is not flagged
+        options = oracle.vehicle_options(sim)
+        with patch.dict('os.environ', REAL, clear=True), patch.object(reflex, '_post', return_value=fake_answers(options, confidence=.95)):
+            ok = reflex.decide(sim, 'farmer_call', key='k')
+        self.assertFalse(ok['unavailable']); self.assertIsNone(ok['error']); self.assertFalse(ok['stub'])
+        # genuinely disabled still raises
+        with patch.dict('os.environ', REAL, clear=True), self.assertRaises(RuntimeError):
+            reflex.decide(sim, 'farmer_call')
+
+    def test_unavailable_verdict_is_distinct_from_stub_in_the_black_box(self):
+        import urllib.error
+        from simulator.blackbox import BlackBox
+        sim = scenario()
+        exc = urllib.error.HTTPError(reflex.URL, 402, 'Payment Required', {}, None)
+        with patch.dict('os.environ', REAL, clear=True), patch.object(reflex, '_post', side_effect=exc):
+            v = reflex.decide(sim, 'farmer_call', key='k')
+        with TemporaryDirectory() as tmp:
+            box = BlackBox(Path(tmp)/'box.sqlite')
+            did = box.record_decision(sim, dict(sim.payload(), event_type='farmer_call'), None, 0., dict(command='hold'), 'applied')
+            box.save_reflex(did, v)
+            rec = box.reflex(did)
+            self.assertTrue(rec['unavailable']); self.assertFalse(rec['stub']); self.assertIn('402', rec['error'])
+            summary = box.reflex_summary()
+            self.assertEqual((summary['stub'], summary['unavailable'], summary['would_act']), (0, 1, 0))
+
     def test_stub_answers_are_well_formed_for_assemble(self):
         sim = scenario()
         options = oracle.vehicle_options(sim)
