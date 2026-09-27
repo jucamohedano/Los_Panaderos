@@ -145,13 +145,14 @@ class BlackBox:
     def reflex_summary(self):
         """Shadow record across all incidents: how often Jev would have acted, agreed and what it would have cost."""
         with self.lock:
-            rows = self.db.execute('SELECT x.route,x.confidence,x.agreement,x.latency_ms,x.regret,e.result_json FROM reflexes x '
+            rows = self.db.execute('SELECT x.route,x.confidence,x.agreement,x.latency_ms,x.regret,x.reflex_json,e.result_json FROM reflexes x '
                                    'LEFT JOIN evaluations e ON e.decision_id=x.decision_id').fetchall()
         if not rows:
             return None
         graded = [(r['regret'], json.loads(r['result_json']).get('regret')) for r in rows if r['regret'] is not None and r['result_json']]
         graded = [(a, b) for a, b in graded if b is not None]
         return dict(decisions=len(rows), would_act=sum(r['route'] == 'reflex' for r in rows),
+                    stub=sum(bool(json.loads(r['reflex_json'] or '{}').get('stub')) for r in rows),
                     mean_confidence=round(sum(r['confidence'] or 0 for r in rows)/len(rows), 2),
                     mean_agreement=round(sum(r['agreement'] for r in rows if r['agreement'] is not None)/max(1, sum(r['agreement'] is not None for r in rows)), 2),
                     mean_latency_ms=int(sum(r['latency_ms'] or 0 for r in rows)/len(rows)), graded=len(graded),

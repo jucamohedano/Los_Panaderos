@@ -26,7 +26,7 @@ class Analyst:
         if isinstance(self.robot, llm.PlatformStub):
             local = reflection.reflect_local(payload)
             if local is None:
-                raise RuntimeError('no reflection backend: HappyRobot retired and LLM_API_KEY unset')
+                raise RuntimeError('no reflection backend: HappyRobot retired and no LLM key (LLM_API_KEY or OPENROUTER_API_KEY)')
             return local
         return reflection.reflect(self.robot, payload)
 

@@ -4,8 +4,14 @@ The HappyRobot workflows (Central dispatch, post-mortem reflection, prompt
 patching) are no longer reachable and the MCP client was removed upstream.
 This module keeps the adaptation stack importable and runnable without them:
 
-* ``complete`` calls an OpenAI-compatible chat model when ``LLM_API_KEY`` is set
-  and returns ``None`` otherwise, so every caller degrades to a no-op.
+* ``complete`` calls an OpenAI-compatible chat-completions endpoint and returns
+  ``None`` when no key is configured or the call fails, so every caller degrades
+  to a no-op. Configuration (env, all optional):
+    LLM_API_KEY   bearer token; falls back to OPENROUTER_API_KEY from the
+                  environment or the gitignored repo .env
+    LLM_BASE_URL  default https://openrouter.ai/api/v1
+    LLM_MODEL     default stealth/space-bunny-alpha (free on OpenRouter)
+  The key is never logged or included in errors.
 * ``PlatformStub`` implements the duck-typed ``tool``/``text``/``latest_output``
   interface the healing and telemetry code used against the MCP client. It never
   performs I/O: every call is recorded in ``sent`` and answered with empty
@@ -24,24 +30,52 @@ ROOT = Path(__file__).resolve().parents[1]
 # comparable with the archived run evidence; nothing is sent to it.
 WORKFLOW = '01a0b8ea-d9af-71f3-9fb7-8a469f9ac25b'
 
-DEFAULT_BASE_URL = 'https://api.openai.com/v1'
-DEFAULT_MODEL = 'gpt-4o-mini'
+DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1'
+DEFAULT_MODEL = 'stealth/space-bunny-alpha'
+DEFAULT_TIMEOUT = 20
+ENV_FILE = ROOT/'.env'
+KEY_VARS = ('LLM_API_KEY', 'OPENROUTER_API_KEY')
+
+
+def _env_file_value(name):
+    if not ENV_FILE.exists():
+        return ''
+    for line in ENV_FILE.read_text(encoding='utf-8').splitlines():
+        if line.strip().startswith(name+'='):
+            return line.split('=', 1)[1].strip().strip('"').strip("'")
+    return ''
+
+
+def api_key():
+    for name in KEY_VARS:
+        value = os.environ.get(name, '').strip()
+        if value:
+            return value
+    return _env_file_value('OPENROUTER_API_KEY')
 
 
 def configured():
-    return bool(os.environ.get('LLM_API_KEY'))
+    return bool(api_key())
 
 
-def complete(system, user, timeout=60):
+def model():
+    return os.environ.get('LLM_MODEL', '').strip() or DEFAULT_MODEL
+
+
+def base_url():
+    return (os.environ.get('LLM_BASE_URL', '').strip() or DEFAULT_BASE_URL).rstrip('/')
+
+
+def complete(system, user, timeout=DEFAULT_TIMEOUT):
     """Return the model's reply text, or None when no key is configured or the call fails."""
-    key = os.environ.get('LLM_API_KEY')
+    key = api_key()
     if not key:
         return None
-    body = json.dumps(dict(model=os.environ.get('LLM_MODEL', DEFAULT_MODEL),
+    body = json.dumps(dict(model=model(),
                            messages=[dict(role='system', content=system), dict(role='user', content=user)],
                            temperature=0)).encode()
-    url = os.environ.get('LLM_BASE_URL', DEFAULT_BASE_URL).rstrip('/')+'/chat/completions'
-    req = request.Request(url, data=body, headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'})
+    req = request.Request(base_url()+'/chat/completions', data=body,
+                          headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'})
     try:
         with request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode())
@@ -50,7 +84,7 @@ def complete(system, user, timeout=60):
         return None
 
 
-def complete_json(system, user, timeout=60):
+def complete_json(system, user, timeout=DEFAULT_TIMEOUT):
     """Like ``complete`` but parse the first JSON object in the reply; None when unavailable."""
     text = complete(system, user, timeout)
     if not text:
