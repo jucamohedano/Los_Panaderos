@@ -14,7 +14,7 @@ flowchart LR
   M --> O3[Ours: SQLite black box, episode_brief, callable workflow]
   E[Offline evaluation<br/>experience replay, off-policy] --> O4[Ours: replay policy as benchmark, not controller]
   C[World-model calibration<br/>ensembles, surprise] --> O5[Ours: possible worlds, divergence]
-  F[Fast/slow routing<br/>confidence-gated cascade] --> O6[Jev reflex: shadow wired, gated mode deferred]
+  F[Fast/slow routing<br/>confidence-gated cascade] --> O6[Jev reflex: shadow wired, currently STUB backend, gated mode deferred]
   style X fill:none,stroke:none
 ```
 
@@ -31,7 +31,7 @@ flowchart LR
 | Experience replay / off-policy evaluation | Re-use stored transitions to evaluate or improve a policy | Sample efficiency; honest offline scores | `evaluation.py`, `adaptation_eval.py`: hold / warning / brief / replay scored by the hindsight oracle on held-out seeds and changed worlds |
 | Ensemble world models, surprise-driven replanning | Forecast with an ensemble; act when observation leaves the ensemble | Named reasons to change plan; no alarms on noise | `worlds.forecast` + `surprise`; threshold `min(.30, max(.05, 2×dispersion))` |
 | Credit assignment for lessons | Attribute outcome changes to the advice that was active | Removes rules that do not help | `lesson_usage`, ≥3 uses, retire after margin |
-| Confidence-gated fast/slow routing | A small fast model answers routine cases, escalates the rest | Latency, cost | Jev shadow (`simulator/reflex.py`): typed choices over validated candidates, high-stakes always escalate, graded by the oracle beside Central |
+| Confidence-gated fast/slow routing | A small fast model answers routine cases, escalates the rest | Latency, cost | Jev shadow (`simulator/reflex.py`): typed choices over validated candidates, high-stakes always escalate, graded by the oracle beside Central. **Currently a stub** (`JEV_BACKEND=stub`, default): the real `typesafe/jev-1.13` needs OpenRouter credits; stub verdicts are confidence 0.0, routed to Central, marked `stub: true`. Switch on with `JEV_BACKEND=openrouter` + `OPENROUTER_API_KEY`. |
 
 ## Context-engineering rules we follow
 

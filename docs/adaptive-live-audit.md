@@ -3,6 +3,15 @@
 **20 September 2026. Verdict: the core components work, but the latest workflows
 are not yet a fully connected, production-ready learning loop.**
 
+> **Update (2026-09-27).** This audit is historical. HappyRobot is permanently
+> unreachable (see `docs/self-healing-loop.md`), and Jev is **currently a stub**:
+> `typesafe/jev-1.13` is a paid model and the OpenRouter account has no credits.
+> `simulator/reflex.py` defaults to `JEV_BACKEND=stub`, which produces synthetic,
+> confidence-0.0 verdicts routed to Central and marked `stub: true`. To use the
+> real model again set `JEV_BACKEND=openrouter` and `OPENROUTER_API_KEY` once
+> credits are available. The Jev rows below describe the real backend as it
+> behaved on 20 September.
+
 Existing credentials cover Jev, HappyRobot inference and Cloudflare state access.
 Publishing the experience workflow, aligning the dispatcher client and repairing
 the fleet tool acknowledgement remain necessary. Retrieved experience has not
@@ -38,7 +47,7 @@ validation or a causal learning experiment.
 | Despacho Central | v26 draft | Inspected, not executed or published |
 | Obtener experiencia | v1 draft | Original test-all skipped four nodes; copied model configuration tested in an isolated unpublished workflow |
 | Post-mortem Los Panaderos | v1, development | Actual fleet telemetry and oracle result produced a structured diagnosis and reusable lesson |
-| Jev | `typesafe/jev-1.13-20260917` | Existing local OpenRouter key works; typed choices, threat, confidence, escalation and simulator validation |
+| Jev | `typesafe/jev-1.13-20260917` | Worked on 20 Sept with the local OpenRouter key; typed choices, threat, confidence, escalation and simulator validation. **Now stubbed (no credits).** |
 
 Cloudflare's `STATE_API_TOKEN` is already configured on Central and its sandbox
 for development, staging and production. The sandbox successfully persists state
