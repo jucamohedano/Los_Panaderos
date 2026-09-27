@@ -8,7 +8,13 @@ from simulator import comms, contacts
 from simulator.engine import Simulation
 from simulator.session import SimulatorSession
 
-NO_KEY = {k: v for k, v in os.environ.items() if k not in comms.llm.KEY_VARS}
+# Base environment with every model key stripped. Built fresh (not captured at import
+# time) so a real key present in the developer's environment or .env cannot leak into
+# these tests and silently turn an offline case into a live one.
+def no_key_env(**extra):
+    env = {k: v for k, v in os.environ.items() if k not in comms.llm.KEY_VARS}
+    env.update(extra)
+    return env
 
 
 def incident(wind=(-3, 0)):
@@ -113,7 +119,7 @@ class LLMCommsTests(unittest.TestCase):
     def test_no_key_falls_back_and_marks_llm_fallback(self):
         sim = incident()
         pol = comms.LLMCommsPolicy()
-        with patch.dict(os.environ, NO_KEY, clear=True), patch.object(comms.llm, '_env_file_value', return_value=None), \
+        with patch.dict(os.environ, no_key_env(), clear=True), patch.object(comms.llm, '_env_file_value', return_value=None), patch.object(contacts, 'load_env', lambda *a, **k: None), \
                 patch.object(comms.llm, 'complete') as complete:
             msgs = pol.decide(sim, {}, 'farmer_call')
         complete.assert_not_called()
@@ -204,7 +210,9 @@ class SessionWiringTests(unittest.TestCase):
         self.assertTrue(any('comms crashed' in e['message'] for e in state['history']))
 
     def test_llm_mode_without_key_marks_fallback_in_session(self):
-        with patch.dict(os.environ, dict(NO_KEY, COMMS_POLICY='llm'), clear=True), patch.object(comms.llm, '_env_file_value', return_value=None):
+        with patch.dict(os.environ, no_key_env(COMMS_POLICY='llm'), clear=True), \
+                patch.object(comms.llm, '_env_file_value', return_value=None), \
+                patch.object(contacts, 'load_env', lambda *a, **k: None):
             s = SimulatorSession(now_ms=0)
             s.action('ignite', now_ms=0);s.sim.set_wind(x=-3, y=0);s.action('call', now_ms=0)
         self.assertEqual(s.public_state()['comms_policy'], 'llm')
