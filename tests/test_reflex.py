@@ -34,13 +34,16 @@ def fake_answers(options, choose=None, confidence=.95, escalate=.1, threat=1.2):
     return dict(model='typesafe/jev-1.13-test', answers=answers)
 
 
+REAL = {reflex.ENV_BACKEND: 'openrouter'}
+
+
 class ReflexUnitTests(unittest.TestCase):
     def test_off_without_key_and_shadow_with_it(self):
-        with patch.dict('os.environ', {}, clear=True):
+        with patch.dict('os.environ', REAL, clear=True):
             self.assertEqual(reflex.mode(), 'off'); self.assertFalse(reflex.enabled())
-        with patch.dict('os.environ', {reflex.ENV_KEY: 'k'}):
+        with patch.dict('os.environ', {**REAL, reflex.ENV_KEY: 'k'}):
             self.assertEqual(reflex.mode(), 'shadow'); self.assertTrue(reflex.enabled())
-        with patch.dict('os.environ', {reflex.ENV_KEY: 'k', reflex.ENV_MODE: 'off'}):
+        with patch.dict('os.environ', {**REAL, reflex.ENV_KEY: 'k', reflex.ENV_MODE: 'off'}):
             self.assertFalse(reflex.enabled())
 
     def test_state_is_compact_and_hides_the_truth(self):
@@ -66,12 +69,14 @@ class ReflexUnitTests(unittest.TestCase):
         _, _, unknown = reflex.assemble(fake_answers(options)['answers'], options, qs, fixed)
         self.assertEqual(unknown, [])
 
+    @patch.dict('os.environ', REAL)
     def test_decide_assembles_a_valid_decision_and_routes_on_confidence_and_stakes(self):
         sim = scenario()
         options = oracle.vehicle_options(sim)
         with patch.object(reflex, 'ask', return_value=fake_answers(options, confidence=.95)):
             v = reflex.decide(sim, 'farmer_call', key='k')
         self.assertTrue(v['valid']); self.assertEqual(v['mode'], 'shadow')
+        self.assertEqual(v['backend'], 'openrouter'); self.assertFalse(v['stub'])
         self.assertTrue(oracle.is_valid(copy.deepcopy(sim), v['decision']))
         self.assertEqual(v['threat']['label'], 'watch')
         self.assertGreaterEqual(v['confidence'], .9)
@@ -84,6 +89,7 @@ class ReflexUnitTests(unittest.TestCase):
             esc = reflex.decide(sim, 'farmer_call', key='k')
         self.assertTrue(any('Central' in r for r in esc['reasons']))
 
+    @patch.dict('os.environ', REAL)
     def test_unknown_choice_falls_back_and_escalates(self):
         sim = scenario()
         options = oracle.vehicle_options(sim)
@@ -110,6 +116,84 @@ class ReflexUnitTests(unittest.TestCase):
         grade = reflex.grade(sim, dict(valid=True, decision=hold), evaluation)
         self.assertEqual(grade['cost'], evaluation['actual_cost']); self.assertEqual(grade['regret'], evaluation['regret'])
         self.assertIsNone(reflex.grade(sim, dict(valid=False, decision=hold), evaluation))
+
+
+class JevBackendTests(unittest.TestCase):
+    """Offline: JEV_BACKEND selection, the stub's synthetic verdict, and its provenance in the black box."""
+
+    def test_stub_is_the_default_and_openrouter_only_when_asked(self):
+        for env in ({}, {reflex.ENV_BACKEND: ''}, {reflex.ENV_BACKEND: 'bogus'}, {reflex.ENV_KEY: 'k'}):
+            with patch.dict('os.environ', env, clear=True):
+                self.assertEqual(reflex.backend_name(), 'stub', env)
+                self.assertIsInstance(reflex.backend(), reflex.StubBackend)
+                self.assertEqual(reflex.mode(), 'shadow'); self.assertTrue(reflex.enabled())
+        with patch.dict('os.environ', {reflex.ENV_BACKEND: 'OpenRouter'}, clear=True):
+            self.assertEqual(reflex.backend_name(), 'openrouter')
+            self.assertIsInstance(reflex.backend(), reflex.OpenRouterBackend)
+            self.assertFalse(reflex.backend().available()); self.assertEqual(reflex.mode(), 'off')
+            with self.assertRaises(RuntimeError):
+                reflex.decide(scenario(), 'farmer_call')
+        with patch.dict('os.environ', {reflex.ENV_BACKEND: 'openrouter', reflex.ENV_KEY: 'k'}, clear=True):
+            self.assertTrue(reflex.backend().available())
+        self.assertEqual(reflex.MODEL, 'typesafe/jev-1.13'); self.assertIn('openrouter.ai', reflex.URL)
+
+    def test_openrouter_backend_posts_with_bearer_key(self):
+        sent = {}
+        def fake_post(body, key, timeout):
+            sent.update(body=body, key=key, timeout=timeout)
+            return dict(model=reflex.MODEL, answers={})
+        with patch.object(reflex, '_post', side_effect=fake_post):
+            raw = reflex.OpenRouterBackend().ask({'s': 1}, {'q': {}}, 'k', timeout=1.5)
+        self.assertEqual(raw['model'], reflex.MODEL)
+        self.assertEqual(sent['key'], 'k'); self.assertEqual(sent['timeout'], 1.5)
+        self.assertEqual(sent['body'], dict(model=reflex.MODEL, state={'s': 1}, questions={'q': {}}))
+
+    def test_stub_answers_are_well_formed_for_assemble(self):
+        sim = scenario()
+        options = oracle.vehicle_options(sim)
+        qs, fixed = reflex.questions(options)
+        raw = reflex.StubBackend().ask(reflex.describe(sim), qs)
+        self.assertTrue(raw['stub']); self.assertEqual(raw['model'], reflex.STUB_MODEL)
+        for vid, q in qs.items():
+            if q['type'] == 'choice':
+                self.assertIn(raw['answers'][vid]['choice'], q['criteria'])
+                self.assertEqual(raw['answers'][vid]['confidence'], 0.)
+        self.assertEqual(raw['answers']['escalate']['noul'], 1.)
+        decision, confidence, unknown = reflex.assemble(raw['answers'], options, qs, fixed)
+        self.assertEqual(unknown, []); self.assertEqual(confidence, 0.)
+        self.assertTrue(oracle.is_valid(copy.deepcopy(sim), decision))
+
+    def test_stub_decide_runs_end_to_end_offline_and_routes_to_central(self):
+        sim = scenario()
+        with patch.dict('os.environ', {}, clear=True), patch.object(reflex, '_post', side_effect=AssertionError('network')):
+            v = reflex.decide(sim, 'farmer_call')
+        self.assertEqual(v['backend'], 'stub'); self.assertTrue(v['stub']); self.assertEqual(v['model'], reflex.STUB_MODEL)
+        self.assertNotEqual(v['model'], reflex.MODEL)
+        self.assertEqual(v['route'], 'central'); self.assertEqual(v['confidence'], 0.); self.assertEqual(v['escalate'], 1.)
+        self.assertEqual(v['reasons'][0], reflex.STUB_REASON)
+        self.assertTrue(any('confidence' in r for r in v['reasons'])); self.assertTrue(any('Central' in r for r in v['reasons']))
+        self.assertTrue(v['valid']); self.assertEqual(v['mode'], 'shadow'); self.assertIsNone(v['threat']['label'])
+        self.assertIn('STUB', v['decision']['mission']); self.assertTrue(v['orders'])
+        json.dumps(v)
+
+    def test_black_box_record_keeps_stub_provenance(self):
+        from simulator.blackbox import BlackBox
+        sim = scenario()
+        with patch.dict('os.environ', {}, clear=True):
+            v = reflex.decide(sim, 'farmer_call')
+        with TemporaryDirectory() as tmp:
+            box = BlackBox(Path(tmp)/'box.sqlite')
+            did = box.record_decision(sim, dict(sim.payload(), event_type='farmer_call'), None, 0., dict(command='hold'), 'applied')
+            box.save_reflex(did, v, agreement=0.)
+            rec = box.reflex(did)
+            self.assertEqual(rec['route'], 'central'); self.assertEqual(rec['confidence'], 0.)
+            self.assertEqual(rec['backend'], 'stub'); self.assertTrue(rec['stub'])
+            self.assertEqual(rec['model'], reflex.STUB_MODEL)
+            self.assertIn('stub', rec['reasons'][0])
+            summary = box.reflex_summary()
+            self.assertEqual(summary['decisions'], 1); self.assertEqual(summary['stub'], 1); self.assertEqual(summary['would_act'], 0)
+            listed = box.list_decisions(sim.incident_id)[0]
+            self.assertTrue(json.loads(listed['reflex_json'])['stub'])
 
 
 @unittest.skipUnless(hasattr(server, 'RUNTIME'), 'legacy server.Controller (RUNTIME, box, robot, analyst) is gone in the new architecture; the adaptation stack is not wired into SimulatorSession yet')
