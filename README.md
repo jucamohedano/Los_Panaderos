@@ -200,3 +200,10 @@ Los **11.261 habitantes** corresponden al total censal de Brunete de 2025;
 su reparto entre distritos y las **100 personas de la granja** son supuestos
 del escenario. Los puntos de encuentro no son un plan oficial de evacuación.
 Es un prototipo educativo, no una predicción operativa de incendios.
+
+## Reproducción estática
+
+El árbol raíz incluye una reproducción estática de la demo en GitHub Pages,
+basada en `recordings/brunete-demo.json.gz`. No requiere servidor Python, API
+key ni simulación en vivo. Abre `index.html` mediante un servidor HTTP estático
+para consultar las vistas de Situación, Incidente, Medios y Archivo.
