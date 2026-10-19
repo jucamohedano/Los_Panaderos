@@ -12,3 +12,6 @@ node_modules/
 *.pyc
 *.egg-info/
 build/
+/envs/envs/
+/envs/simulator/
+.env.local
