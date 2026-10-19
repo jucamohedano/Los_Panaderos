@@ -2,10 +2,11 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import MagicMock, patch
 
 from envs.wildfire_response.baselines import passive
 from envs.wildfire_response.core.environment import WildfireResponseEnv
-from envs.wildfire_response.director.policy import DirectorPolicy, public_context
+from envs.wildfire_response.director.policy import DirectorPolicy, OpenRouterTransport, public_context
 from envs.wildfire_response.director.run import run
 
 
@@ -16,6 +17,15 @@ def response(action, finish_reason='tool_calls'):
 
 
 class DirectorTests(unittest.TestCase):
+    def test_transport_deadline_stops_whitespace_keepalive(self):
+        transport = OpenRouterTransport(api_key='test-only-not-a-key')
+        response_context = MagicMock()
+        with patch('envs.wildfire_response.director.policy.urlopen', return_value=response_context), \
+             patch('envs.wildfire_response.director.policy.time.monotonic', side_effect=[0, 91]):
+            with self.assertRaisesRegex(RuntimeError, 'transport failed'):
+                transport(dict(model='test'))
+        response_context.__enter__.return_value.read1.assert_not_called()
+
     def setUp(self):
         self.env = WildfireResponseEnv(max_decisions=1)
         self.observation, _ = self.env.reset('train-000')
@@ -27,7 +37,7 @@ class DirectorTests(unittest.TestCase):
             requests.append(payload)
             return response(passive(self.observation))
         policy = DirectorPolicy(max_calls=1, transport=transport, interval=0)
-        action = policy(observation)
+        action = policy(observation, feedback=dict(error='Previous target rejected'))
         self.assertEqual(action, passive(self.observation))
         serialized = json.dumps(requests)
         self.assertNotIn('private_annotations', serialized)
@@ -35,6 +45,7 @@ class DirectorTests(unittest.TestCase):
         self.assertNotIn('secret', serialized)
         self.assertEqual(requests[0]['provider']['max_price'], dict(prompt=0, completion=0))
         self.assertFalse(requests[0]['provider']['allow_fallbacks'])
+        self.assertEqual(json.loads(requests[0]['messages'][1]['content'])['last_action_error'], 'Previous target rejected')
         with self.assertRaises(RuntimeError):
             policy(observation)
         self.assertEqual(len(requests), 1)

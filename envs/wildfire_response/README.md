@@ -172,7 +172,9 @@ python -m envs.wildfire_response.director.run \
 ```
 
 The default is `nvidia/nemotron-3.5-super-vl:free`, with at most eight requests,
-4,096 output tokens per request and 3.1 seconds between request starts. Explicit
+4,096 output tokens per request, extended reasoning disabled, and 3.1 seconds
+between request starts. The previous action's validation error is returned to the
+director so it can correct rejected orders. Explicit
 zero prompt/completion price caps and disabled provider fallback prevent paid
 model substitution. There are no automatic retries. Transport errors stop the
 run and save an incomplete status; malformed/truncated tool output becomes an

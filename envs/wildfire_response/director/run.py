@@ -29,7 +29,7 @@ def run(output, scenario_id='train-000', decisions=8, model=DEFAULT_MODEL, trans
     started = time.perf_counter()
     try:
         while True:
-            action = policy(observation)
+            action = policy(observation, feedback=info)
             observation, value, terminated, truncated, info = env.step(action)
             trajectory['transitions'].append(dict(action=action, observation=observation, reward=value,
                                                   terminated=terminated, truncated=truncated, info=info))

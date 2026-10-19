@@ -92,10 +92,20 @@ class OpenRouterTransport:
                 'Authorization': 'Bearer ' + self._api_key, 'Content-Type': 'application/json',
                 'X-OpenRouter-Title': 'Wildfire Response Research'})
         try:
+            started = time.monotonic()
             with urlopen(request, timeout=self.timeout) as response:
-                body = response.read(2_000_001)
-            if len(body) > 2_000_000:
-                raise RuntimeError('Model response exceeds 2 MB')
+                chunks, size = [], 0
+                while True:
+                    if time.monotonic() - started >= self.timeout:
+                        raise TimeoutError('Model response exceeded request deadline')
+                    chunk = response.read1(65536)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    size += len(chunk)
+                    if size > 2_000_000:
+                        raise RuntimeError('Model response exceeds 2 MB')
+                body = b''.join(chunks)
             return json.loads(body)
         except HTTPError as error:
             raise RuntimeError(f'OpenRouter HTTP {error.code}; no retry or paid fallback attempted') from None
@@ -114,15 +124,18 @@ class DirectorPolicy:
         self.interval, self.last_call = interval, None
         self.calls, self.records = 0, []
 
-    def __call__(self, observation):
+    def __call__(self, observation, feedback=None):
         if self.calls >= self.max_calls:
             raise RuntimeError('Director request budget exhausted')
         if self.last_call is not None:
             time.sleep(max(0, self.interval - (time.monotonic() - self.last_call)))
+        context = public_context(observation)
+        context['last_action_error'] = feedback.get('error') if feedback else None
         payload = dict(model=self.model, temperature=0, max_tokens=self.max_tokens,
+            reasoning=dict(enabled=False),
             provider=dict(allow_fallbacks=False, require_parameters=True, max_price=dict(prompt=0, completion=0)),
             messages=[dict(role='system', content=INSTRUCTIONS),
-                      dict(role='user', content=json.dumps(public_context(observation), separators=(',', ':')))],
+                      dict(role='user', content=json.dumps(context, separators=(',', ':')))],
             tools=[dict(type='function', function=dict(name='submit_action',
                 description='Assign fleet missions, triage received reports and send simulated instructions.',
                 parameters=action_schema()))], tool_choice=dict(type='function', function=dict(name='submit_action')))
@@ -131,6 +144,7 @@ class DirectorPolicy:
         response = self.transport(payload)
         record = dict(request=self.calls, tick=observation['tick'], requested_model=self.model,
                       served_model=response.get('model'), usage=response.get('usage', {}),
+                      finish_reason=(response.get('choices') or [{}])[0].get('finish_reason'),
                       seconds=round(time.monotonic()-started, 3), protocol_error=None)
         self.records.append(record)
         try:
