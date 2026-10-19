@@ -10,6 +10,12 @@ memory use, acceptance checks and remaining publication prerequisites.
 The [Spain 2026 evidence pack](data/README.md) starts the transition toward
 source-backed scenarios for Almería, Huelva and Madrid.
 
+The separate [regional-response v2 alpha](regional/README.md) adds a Huelva
+resource-evidence pack, two ground bases, one airstrip, base allocation offers,
+ground crews/engines and finite aircraft sorties. The original drone environment
+and its dataset are unchanged. V2 remains a derived coordination prototype,
+not a historical replay or a calibrated wildfire/aviation model.
+
 ## Run without a model or API key
 
 From the repository root, using Python 3.12 or newer:

@@ -209,6 +209,11 @@ recompensas verificables y un adaptador OpenEnv opcional. El núcleo funciona en
 CPU sin claves de API. Su paquete y sus evaluaciones son independientes del
 servidor de demostración.
 
+La rama regional incorpora además un [prototipo v2 de coordinación entre bases](envs/wildfire_response/regional/README.md):
+dos CEDEFO y una pista aérea documentados en Huelva, con autorizaciones, medios
+terrestres y salidas de un avión. Inventarios, tiempos y terreno siguen siendo
+supuestos explícitos; no modifica la demo de drones ni reproduce un incendio real.
+
 ## Reproducción estática
 
 El árbol raíz incluye una reproducción estática de la demo en GitHub Pages,
