@@ -155,6 +155,37 @@ regrounds their report-location preference in currently received evidence. It do
 not replay old vehicle coordinates or update its bank on validation/test episodes.
 This is a minimal retrieval baseline, not a claim of improved performance.
 
+## CPU readiness checks and bounded policy search
+
+Before spending inference or training compute, evaluate all six training smoke
+families at the default 32-decision budget. Natural completion and budget
+truncation are distinct. The audit independently reconstructs rewards from final
+components, replays every baseline trajectory, and checks full-episode early
+warning, false-alarm restraint, repeated notices and invalid-action abandonment.
+
+```sh
+python -m envs.wildfire_response.eval.run --split smoke --max-decisions 32 \
+  --output .runtime/readiness-baselines
+python -m envs.wildfire_response.eval.audit --output .runtime/readiness-rewards
+python -m envs.wildfire_response.eval.audit \
+  --coverage .runtime/readiness-baselines \
+  --reward-results .runtime/readiness-rewards/summary.json \
+  --output .runtime/readiness.json
+python -m envs.wildfire_response.eval.hillclimb \
+  --readiness .runtime/readiness.json --output .runtime/parameter-search
+```
+
+The optional CPU search tries one Boolean neighbor of the scripted baseline:
+investigate before warnings when no fresh shared-sensor fire is visible. Selection
+uses six training configurations only. It writes the frozen selection before
+evaluating six separate validation configurations, never revising the choice from
+validation scores. Test cases are excluded. It saves public action trajectories
+and separate outcome scores. This is a small policy-parameter hill-climb, not
+model-weight training, automatic prompt optimization or proof of generalization.
+Verification-first can be unsafe under urgent unconfirmed threats; inspect
+population exposure separately from aggregate reward. All episodes run serially;
+launch the commands sequentially to bound CPU load.
+
 ## Model director: capped OpenRouter evaluation
 
 The optional stdlib director policy sends public observations to an explicit
