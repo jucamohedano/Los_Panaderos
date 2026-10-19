@@ -58,6 +58,16 @@ class BatchTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 batch(Path(directory) / 'batch', transport=lambda payload: {}, scenarios=['test-100'])
 
+    def test_runtime_error_type_is_preserved_without_retry(self):
+        def fake_run(output, identifier, **kwargs):
+            raise ValueError('test failure')
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('envs.wildfire_response.director.batch.run', side_effect=fake_run) as runner:
+            result = batch(Path(directory) / 'batch', transport=lambda payload: {})
+            self.assertEqual(result['error_type'], 'ValueError')
+            self.assertEqual(result['stop_reason'], 'transport_or_runtime_error')
+            self.assertEqual(runner.call_count, 1)
+
 
 if __name__ == '__main__':
     unittest.main()

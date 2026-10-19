@@ -55,8 +55,9 @@ def batch(output, max_requests=24, transport=None, scenarios=SCENARIOS):
                           stopped_scenario=identifier)
         except RequestBudgetExceeded:
             result.update(status='stopped', stop_reason='local_request_budget', stopped_scenario=identifier)
-        except (RuntimeError, ValueError):
-            result.update(status='stopped', stop_reason='transport_or_runtime_error', stopped_scenario=identifier)
+        except (RuntimeError, ValueError) as error:
+            result.update(status='stopped', stop_reason='transport_or_runtime_error', stopped_scenario=identifier,
+                          error_type=type(error).__name__)
         result['requests'] = budget.requests
         dump(output / 'summary.json', result)
         if result['status'] == 'stopped':

@@ -58,8 +58,48 @@ director profile and production runtime remain unchanged.
 - `.runtime/risk-aware-calibration-2026-10-19/scores.json`: scripted calibration.
 - `.runtime/director-risk-aware-batch-2026-10-19/`: batch status, completed episode
   outcomes, public trajectories, named-choice proposals and request usage metadata.
-- **43 local tests pass**, including simulated first-limit stop, no retry,
+- **44 local tests pass**, including simulated first-limit stop, no retry,
   shared-cap accounting, access-versus-quota distinction and test-split exclusion.
 
 The fake HTTP 429/403 printed by unit tests are simulated checks, not live quota
 events. Actual provider status is recorded separately in the batch summary.
+
+## Batch stopped; no automatic continuation
+
+The live batch stopped on request attempt **16** during the wind-shift case.
+Fifteen completions returned successfully and produced fifteen valid actions:
+eight in the completed conflicting-report episode and seven in the incomplete
+wind-shift episode. The latter is not assigned a completed score or used as a
+demonstration/preference label. The other four planned cases were not run by the
+model. Returned completions report zero cost; the failed attempt returned no usage.
+
+The stop reason is **transport/runtime failure**, with no reported provider HTTP
+status. It is **not confirmed quota exhaustion**: no HTTP 402/429 was observed,
+and the local 24-request cap was not reached. The original saved error category
+does not distinguish timeout from another transport/runtime failure, so the
+report does not invent a more specific cause. Future run status now retains
+exception type. No retries, further inference or automatic model switch followed
+the stop. Completed request latencies ranged from **7.071 to 75.551 seconds**.
+
+### Alternatives identified, not executed
+
+- [Gemma 4 31B free on OpenRouter](https://openrouter.ai/google/gemma-4-31b-it:free)
+  advertises function calling and is listed at zero prompt/completion price.
+  It could test a different model/backend with the existing key. Actual access,
+  task quality and reliability still need a small authorized smoke run; it is
+  not a workaround for an account-wide OpenRouter quota.
+- [Groq's OpenAI-compatible API](https://console.groq.com/docs/openai) could use
+  a separate provider key. Its [free-tier limits](https://console.groq.com/docs/rate-limits)
+  currently list GPT-OSS 20B/120B with 8,000 tokens/minute and 200,000 tokens/day.
+  Our completed episode averaged roughly 7,700 prompt tokens per call before
+  output, so prompt compaction and stricter pacing are prerequisites, not just
+  swapping a base URL. This provider was not configured or called.
+- CPU scripted-policy search and scenario calibration can continue without
+  inference access. No weights or GPU compute are required for those checks.
+
+The model also remains weak on prevention and repeats notices. A different
+endpoint might address latency, but must not be presumed to fix decision quality.
+Before another comparison, review whether static action effects and wind conventions
+are stated explicitly enough in the actor contract. In particular, information-only
+messages do not initiate evacuation; the benchmark's scripted ignitions also limit
+real-world interpretations. The risk-aware profile is not promoted.

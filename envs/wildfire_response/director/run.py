@@ -40,10 +40,11 @@ def run(output, scenario_id='train-000', decisions=8, model=DEFAULT_MODEL, trans
                                   reward=value, error=info.get('error'))), flush=True)
             if terminated or truncated:
                 break
-    except Exception:
+    except Exception as error:
         dump(output / 'partial-trajectory.json.gz', trajectory)
         dump(output / 'requests.json', policy.records)
-        dump(output / 'status.json', dict(status='incomplete_transport_or_runtime_failure', requests=policy.calls))
+        dump(output / 'status.json', dict(status='incomplete_transport_or_runtime_failure', requests=policy.calls,
+                                         error_type=type(error).__name__))
         raise
     trajectory['elapsed_seconds'] = round(time.perf_counter()-started, 3)
     trajectory['total_reward'] = sum(item['reward'] for item in trajectory['transitions'])
