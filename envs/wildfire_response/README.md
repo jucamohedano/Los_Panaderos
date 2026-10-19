@@ -237,6 +237,31 @@ state is given to the model. Free endpoint inputs may be logged by providers:
 use synthetic observations only, never private calls or personal data. Free
 capacity and quota can prevent a run; the key is never persisted in artifacts.
 
+### Risk-aware mixed training batch
+
+```sh
+python -m envs.wildfire_response.director.batch \
+  --output .runtime/risk-aware-model-batch --max-requests 24
+```
+
+This sequential batch plans six new training configurations, prioritizing
+conflicting reports and wind shifts, using the free Nemotron model and a frozen
+`risk-aware` prompt profile. Each episode permits 32 decisions, but the whole batch
+shares the explicit request cap. A cap reached mid-episode leaves an incomplete
+trajectory, not a scored completion. Completed episodes are replayed and compared
+with the deterministic policy at identical seeds and horizons.
+
+The profile asks the model to combine risk-aware precautionary warnings with
+parallel investigation, consider competing reports and avoid repeated notices. It
+does not change the environment, reward, legal action choices or model weights.
+It is an exploratory training-only prompt evaluation, not an approved improvement.
+
+HTTP 402/429 immediately stops the entire batch as a provider limit. HTTP 403 and
+other service errors also stop, but are labeled separately. No automatic retries,
+provider/model switches or paid fallbacks occur. A local request-cap stop is
+explicitly distinguished from a provider limit. Partial artifacts and completed
+episode scores are retained for inspection.
+
 ## OpenEnv and packaging
 
 Install separately from the demo project:
