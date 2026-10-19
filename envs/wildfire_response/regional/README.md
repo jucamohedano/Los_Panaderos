@@ -4,6 +4,7 @@ A separate CPU-only environment for one simulated provincial director coordinati
 two ground bases and a shared aircraft. No model API key is needed. The original
 `WildfireResponseEnv`, drone demo, scenario splits and reward version remain unchanged.
 There is no live dispatch, HappyRobot call or real communication integration here.
+See [acceptance results and limitations](RESULTS.md) for measured checks and rollouts.
 
 ## Evidence, not invented operational records
 
