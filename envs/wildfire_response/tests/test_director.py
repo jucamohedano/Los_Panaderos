@@ -139,6 +139,16 @@ class DirectorTests(unittest.TestCase):
         self.assertTrue(requests[0]['provider']['require_parameters'])
         self.assertEqual(policy.records[0]['tool_mode'], 'auto')
 
+    def test_risk_aware_profile_preserves_tools_and_uses_no_private_information(self):
+        requests = []
+        def transport(payload):
+            requests.append(payload)
+            return response(hold_proposal(build_choices(self.observation)))
+        policy = DirectorPolicy(transport=transport, profile='risk-aware', interval=0)
+        self.env._validate_action(policy(self.observation))
+        self.assertIn('Do not apply a blanket wait-for-confirmation rule', requests[0]['messages'][0]['content'])
+        self.assertEqual(policy.records[0]['profile'], 'risk-aware')
+
 
 if __name__ == '__main__':
     unittest.main()

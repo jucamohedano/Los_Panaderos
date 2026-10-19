@@ -32,6 +32,26 @@ Avoid repeated notices; explanations do not earn reward. Messages and calls are 
 No automatic tactical fallback: an unknown choice is rejected and incurs a penalty.
 '''
 
+RISK_AWARE = '''Risk-aware priorities for uncertain incidents:
+Do not apply a blanket wait-for-confirmation rule. Weigh report recency, independent
+corroboration, distance to populated districts, wind direction and warning delivery delay.
+When a plausible nearby/downwind threat could reach people before investigation completes,
+consider a precautionary warning while scouting in parallel. Otherwise investigate before
+evacuating. Avoid indiscriminate warnings based on a single stale or repeated claim.
+Investigate competing locations rather than repeatedly returning to the first report.
+Maintain coverage for other threats after the first fire is controlled; reassess after wind changes.
+Before sending a notice, check delivered acknowledgements and pending/prior messages for the
+same recipient and purpose. A repeat does not improve safety merely because time advanced.
+Choose containment or truck missions from current named candidates; use scarce resources
+in parallel where useful. Explain the evidence and uncertainty briefly, without inventing facts.
+'''
+
+
+class ProviderHTTPError(RuntimeError):
+    def __init__(self, status_code):
+        self.status_code = status_code
+        super().__init__(f'OpenRouter HTTP {status_code}; no retry or paid fallback attempted')
+
 
 
 
@@ -74,20 +94,23 @@ class OpenRouterTransport:
                 body = b''.join(chunks)
             return json.loads(body)
         except HTTPError as error:
-            raise RuntimeError(f'OpenRouter HTTP {error.code}; no retry or paid fallback attempted') from None
+            raise ProviderHTTPError(error.code) from None
         except (URLError, TimeoutError, OSError, ValueError):
             raise RuntimeError('OpenRouter transport failed; no retry or paid fallback attempted') from None
 
 
 class DirectorPolicy:
     def __init__(self, model=DEFAULT_MODEL, max_calls=8, max_tokens=4096, transport=None, interval=3.1,
-                 tool_mode='forced'):
+                 tool_mode='forced', profile='standard'):
         if not model.endswith(':free'):
             raise ValueError('This runner permits explicit :free models only')
         if not 1 <= max_calls <= 32 or not 256 <= max_tokens <= 8192 or interval < 0:
             raise ValueError('Invalid call/token/rate budget')
         if tool_mode not in ('forced', 'auto'):
             raise ValueError('Unknown tool mode')
+        if profile not in ('standard', 'risk-aware'):
+            raise ValueError('Unknown director profile')
+        self.profile = profile
         self.tool_mode = tool_mode
         self.model, self.max_calls, self.max_tokens = model, max_calls, max_tokens
         self.transport = transport if transport is not None else OpenRouterTransport()
@@ -104,7 +127,7 @@ class DirectorPolicy:
         payload = dict(model=self.model, temperature=0, max_tokens=self.max_tokens,
             reasoning=dict(enabled=False),
             provider=dict(allow_fallbacks=False, require_parameters=True, max_price=dict(prompt=0, completion=0)),
-            messages=[dict(role='system', content=INSTRUCTIONS),
+            messages=[dict(role='system', content=INSTRUCTIONS + (RISK_AWARE if self.profile == 'risk-aware' else '')),
                       dict(role='user', content=json.dumps(context, separators=(',', ':')))],
             tools=[dict(type='function', function=dict(name='submit_action',
                 description='Assign fleet missions, triage received reports and send simulated instructions.',
@@ -119,7 +142,8 @@ class DirectorPolicy:
                       served_model=response.get('model'), usage=response.get('usage', {}),
                       finish_reason=(response.get('choices') or [{}])[0].get('finish_reason'),
                       seconds=round(time.monotonic()-started, 3), protocol_error=None,
-                      choice_version=CHOICE_VERSION, tool_mode=self.tool_mode, choices=context['choices'])
+                      choice_version=CHOICE_VERSION, tool_mode=self.tool_mode, profile=self.profile,
+                      choices=context['choices'])
         self.records.append(record)
         try:
             choice = response['choices'][0]
