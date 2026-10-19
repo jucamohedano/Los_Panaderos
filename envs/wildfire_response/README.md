@@ -160,7 +160,16 @@ This is a minimal retrieval baseline, not a claim of improved performance.
 The optional stdlib director policy sends public observations to an explicit
 `:free` OpenRouter model using `OR_API_KEY` from the process environment. It forces
 one `submit_action` function call per decision: the model selects report triage,
-complete fleet missions and simulated population messages. All received reports
+complete fleet missions and simulated population messages. The versioned named-choice
+interface requires one option ID per vehicle, not coordinates or nested engine
+orders. For example, only the extinguisher can select `containment_position_3`;
+scout patrol and physical-warning choices have separate predefined order shapes.
+Message IDs select an explicit channel, recipient and purpose together. The model
+still chooses priorities, assignments and whether to inform or evacuate. Translation
+never replaces an unknown choice with a baseline action. Options are derived only
+from public candidates and district status, without oracle ranking. Single-waypoint
+patrol choices intentionally narrow the original multi-waypoint action space.
+All received reports
 are included, so a separate report-retrieval tool is not needed yet. Non-burning
 sensor cells are omitted to reduce prompt size; remembered burning cells keep
 their observation times. This compact view is not identical to baseline input.
@@ -180,7 +189,8 @@ model substitution. There are no automatic retries. Transport errors stop the
 run and save an incomplete status; malformed/truncated tool output becomes an
 invalid environment action, not a secretly substituted baseline decision.
 
-The runner saves a replayable director trajectory, token/latency metadata and a
+The runner saves a replayable director trajectory, the model's proposals and each
+decision's choice catalog, token/latency metadata and a
 matched deterministic trajectory at the same seed and decision horizon. A short
 smoke run is budget-truncated, not evidence of successful full fire resolution.
 No weights are trained, no real communications are sent, and no private engine

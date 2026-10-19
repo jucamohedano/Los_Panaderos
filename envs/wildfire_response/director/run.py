@@ -10,6 +10,7 @@ from ..core.reward import REWARD_VERSION
 from ..core.scenarios import get_task
 from ..eval.run import dump, replay, run_episode, source_digest
 from .policy import DEFAULT_MODEL, DirectorPolicy
+from .choices import CHOICE_VERSION
 
 
 def run(output, scenario_id='train-000', decisions=8, model=DEFAULT_MODEL, transport=None):
@@ -22,7 +23,8 @@ def run(output, scenario_id='train-000', decisions=8, model=DEFAULT_MODEL, trans
     task = get_task(scenario_id)
     trajectory = dict(version=SCHEMA_VERSION, reward_version=REWARD_VERSION, scenario_id=scenario_id,
                       split=task['split'], seed=task['seed'], max_decisions=decisions, policy='director',
-                      model=model, initial_observation=observation, initial_info=info, transitions=[],
+                      model=model, choice_version=CHOICE_VERSION,
+                      initial_observation=observation, initial_info=info, transitions=[],
                       engine_revision=subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip(),
                       source_digest=source_digest())
     output.mkdir(parents=True)
@@ -49,6 +51,7 @@ def run(output, scenario_id='train-000', decisions=8, model=DEFAULT_MODEL, trans
     baseline, _ = run_episode(task, 'deterministic', max_decisions=decisions)
     dump(output / 'deterministic.json.gz', baseline)
     summary = dict(status='complete', scenario_id=scenario_id, max_decisions=decisions,
+                   choice_version=CHOICE_VERSION,
                    director_reward=trajectory['total_reward'], deterministic_reward=baseline['total_reward'],
                    director_replayed_reward=replay(trajectory), requests=policy.calls,
                    invalid_actions=env.evaluator_state()['counters']['invalid_actions'],

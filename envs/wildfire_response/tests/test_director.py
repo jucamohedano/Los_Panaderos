@@ -8,6 +8,12 @@ from envs.wildfire_response.baselines import passive
 from envs.wildfire_response.core.environment import WildfireResponseEnv
 from envs.wildfire_response.director.policy import DirectorPolicy, OpenRouterTransport, public_context
 from envs.wildfire_response.director.run import run
+from envs.wildfire_response.director.choices import build_choices, translate
+
+
+def hold_proposal(choices):
+    return dict(fleet_choices={identifier: 'hold' for identifier in choices['fleet']},
+                report_dispositions=[], messages=[], explanation='Hold')
 
 
 def response(action, finish_reason='tool_calls'):
@@ -35,10 +41,12 @@ class DirectorTests(unittest.TestCase):
         requests = []
         def transport(payload):
             requests.append(payload)
-            return response(passive(self.observation))
+            return response(hold_proposal(build_choices(self.observation)))
         policy = DirectorPolicy(max_calls=1, transport=transport, interval=0)
         action = policy(observation, feedback=dict(error='Previous target rejected'))
-        self.assertEqual(action, passive(self.observation))
+        self.env._validate_action(action)
+        self.assertTrue(all(order['command'] == 'hold' for key in ('scout_orders', 'extinguisher_orders', 'truck_orders')
+                            for order in action['fleet'][key]))
         serialized = json.dumps(requests)
         self.assertNotIn('private_annotations', serialized)
         self.assertNotIn('future_events', serialized)
@@ -49,8 +57,9 @@ class DirectorTests(unittest.TestCase):
         self.assertTrue(function['strict'])
         schema = function['parameters']
         self.assertEqual(set(schema['required']), set(schema['properties']))
-        scout = schema['properties']['fleet']['properties']['scout_orders']['items']
-        self.assertEqual(scout['properties']['drone_id']['enum'], ['scout-1'])
+        scout = schema['properties']['fleet_choices']['properties']['scout-1']
+        self.assertIn('hold', scout['enum'])
+        self.assertNotIn('containment_position_0', scout['enum'])
         self.assertEqual(json.loads(requests[0]['messages'][1]['content'])['last_action_error'], 'Previous target rejected')
         with self.assertRaises(RuntimeError):
             policy(observation)
@@ -69,7 +78,7 @@ class DirectorTests(unittest.TestCase):
     def test_one_decision_rollout_replays_and_saves_matched_baseline(self):
         def transport(payload):
             context = json.loads(payload['messages'][1]['content'])
-            return response(context['hold_action_example'])
+            return response(hold_proposal(context['choices']))
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / 'rollout'
             summary = run(output, decisions=1, transport=transport)
@@ -85,6 +94,37 @@ class DirectorTests(unittest.TestCase):
         context = public_context(self.observation)
         self.assertEqual(context['reports'], self.observation['reports'])
         self.assertTrue(all(cell['burning'] and 'observed_at' in cell for cell in context['sensor_memory']))
+
+    def test_catalog_translation_preserves_choices_and_rejects_unknown_ids(self):
+        choices = build_choices(self.observation)
+        for identifier, unit in choices['fleet'].items():
+            for option, order in unit['options'].items():
+                proposal = hold_proposal(choices)
+                proposal['fleet_choices'][identifier] = option
+                action = translate(proposal, choices)
+                self.assertIn(order, action['fleet'][unit['order_array']])
+                self.env._validate_action(action)
+        for identifier, message in choices['messages'].items():
+            proposal = hold_proposal(choices)
+            proposal['messages'] = [dict(choice_id=identifier, report_ids=[])]
+            action = translate(proposal, choices)
+            self.assertEqual(action['messages'][0], dict(message, report_ids=[]))
+            self.env._validate_action(action)
+        proposal = hold_proposal(choices)
+        proposal['fleet_choices']['scout-1'] = 'containment_position_0'
+        with self.assertRaises(ValueError):
+            translate(proposal, choices)
+        del proposal['fleet_choices']['scout-1']
+        with self.assertRaises(ValueError):
+            translate(proposal, choices)
+
+    def test_unknown_model_choice_consumes_invalid_action_without_fallback(self):
+        proposal = hold_proposal(build_choices(self.observation))
+        proposal['fleet_choices']['scout-1'] = 'invented-target'
+        policy = DirectorPolicy(transport=lambda payload: response(proposal), interval=0)
+        self.assertEqual(policy(self.observation), {})
+        self.assertEqual(policy.records[0]['proposal'], proposal)
+        self.assertIsNotNone(policy.records[0]['protocol_error'])
 
 
 if __name__ == '__main__':
