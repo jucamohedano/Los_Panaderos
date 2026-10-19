@@ -45,7 +45,8 @@ The current training audit runs all 24 training tasks against passive, seeded
 random-valid, blanket-warning and cooperative policies, at the same 60-decision
 budget. Every rollout is independently checked and replayed exactly.
 
-Measured audit at `.runtime/regional-training-reachable-v02-2026-10-19/`:
+Frozen-source audit at revision `a497959ce6f4e2f8fa3fafa71e52166e4a77aded`,
+under `.runtime/regional-v02-frozen-calibration-2026-10-19/`:
 
 - **96 episodes:** all independent accounting checks and exact replays passed;
   zero invalid actions and zero weak-policy difficulty flags.
@@ -57,8 +58,13 @@ Measured audit at `.runtime/regional-training-reachable-v02-2026-10-19/`:
   4/24 natural completions.
 - **Cooperative:** mean reward -0.017922; zero population exposure;
   24/24 natural completions.
-- Sequential CPU evaluation, including replay: **80.598 seconds**, peak RSS
-  **32,412 KiB**. This is a local measurement, not a hosting performance guarantee.
+- Sequential CPU evaluation, including replay: **87.284 seconds**, peak RSS
+  **32,772 KiB**. This is a local measurement, not a hosting performance guarantee.
+
+All policy rewards match the preceding exploratory run exactly. That run took
+80.598 seconds at 32,412 KiB peak RSS; the repeat illustrates normal local runtime
+variation. The frozen task manifest records SHA256
+`7907b0183a72be356a443f17557ee511ecf3a9e757242f58c524ff2ce3ef3c1c`.
 
 Natural completion requires no remaining incident events/reports, active fire,
 moving population or assigned resources. A policy can avoid exposure yet still
@@ -72,10 +78,15 @@ flags are diagnostics, not proof of challenge, optimality or model readiness;
 - 67 core, policy, evidence and regional tests passed.
 - Three additional OpenEnv 0.7.0 adapter tests passed, including an external
   WebSocket client whose observations, rewards and end flags match the local API.
+- Both existing v1 local-adapter/discovery tests also passed; the original server
+  and task contract remain separate from this v2 transport.
 - A checked external cooperative rollout completed `regional-train-001` at model
   minute 42 with reward -0.007678798411122146.
 - The dedicated v2 server supports one active episode and exposes no checkpoint,
   private generation label or future-event endpoint. The v1 server is unchanged.
+- A freshly built wheel was installed into an isolated directory and run from
+  outside the repository. Its false-alarm episode completed and replayed exactly;
+  v2 task discovery and the packaged OpenEnv manifest were also checked.
 - A container recipe and manifest are provided; Docker is unavailable locally,
   so no image build or hosted deployment has been validated.
 
