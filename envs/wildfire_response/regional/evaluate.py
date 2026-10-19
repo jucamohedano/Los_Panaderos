@@ -7,6 +7,7 @@ import resource
 import time
 
 from ..eval.run import dump, load
+from .benchmark import verify_lock
 from .data import PACK
 from .run import replay, run
 from .environment import REWARD_VERSION, WEIGHTS
@@ -14,6 +15,7 @@ from .scenarios import DATASET_VERSION, generate_tasks
 
 
 def export_tasks(output):
+    benchmark = verify_lock()
     output = Path(output)
     output.mkdir(parents=True)
     private = output / 'private'
@@ -24,12 +26,12 @@ def export_tasks(output):
         dump(private / f'{split}.json', subset)
         public = [{key: task[key] for key in ('id','split','group_id','seed','synthetic','configuration_sha256')} for task in subset]
         (output / f'{split}.jsonl').write_text(''.join(json.dumps(task)+'\n' for task in public), encoding='utf-8')
-    manifest = dict(version=DATASET_VERSION, count=len(tasks), splits=dict(train=24, validation=6, test=6),
+    manifest = dict(version=DATASET_VERSION, benchmark=benchmark, count=len(tasks), splits=dict(train=24, validation=6, test=6),
         reward_version=REWARD_VERSION, weights=WEIGHTS,
         pack_sha256=hashlib.sha256(PACK.read_bytes()).hexdigest(),
         tasks_sha256=hashlib.sha256(json.dumps(tasks,sort_keys=True).encode()).hexdigest(),
         grouping='Disjoint spatial/configuration groups and seeds; not held-out real incidents or maps',
-        status='draft synthetic tasks; no model-training or publication readiness claim')
+        status='frozen synthetic benchmark inputs; no model-training or publication readiness claim')
     dump(output/'manifest.json', manifest)
     return tasks
 
@@ -72,7 +74,8 @@ def evaluate(output, split='train', limit=None):
     if any(task['family']!='false_alarm' for task in selected) and not any(
             row['components']['exposed_population']>0 for row in rows if row['policy']=='passive'):
         flags.append(dict(issue='missing_population_protection_signal', scope=split))
-    result = dict(version=DATASET_VERSION, reward_version=REWARD_VERSION, evaluated_split=split, scenarios=len(selected), episodes=len(rows),
+    result = dict(version=DATASET_VERSION, benchmark=verify_lock(), reward_version=REWARD_VERSION, evaluated_split=split, scenarios=len(selected), episodes=len(rows),
+        independently_verified=sum(row['independent_verification'] for row in rows), exact_replays=sum(row['replay_passed'] for row in rows),
         invalid_actions=invalid, difficulty_flags=flags, requires_calibration_review=bool(flags) or bool(invalid),
         ready_for_model_training=False,
         policies={policy: dict(mean_reward=sum(row['total_reward'] for row in rows if row['policy']==policy)/len(selected),
