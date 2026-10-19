@@ -23,4 +23,4 @@ exclude = ["envs.wildfire_response.tests*"]
 
 [tool.setuptools.package-data]
 simulator = ["static/maps/brunete-illustrated.json"]
-"envs.wildfire_response" = ["openenv/openenv.yaml", "openenv/Dockerfile", "tasks/*.md", "data/*.json", "data/*.md", "regional/*.md", "regional/*.json", "regional/director/*.md", "regional/openenv/*.yaml", "regional/openenv/Dockerfile"]
+"envs.wildfire_response" = ["openenv/openenv.yaml", "openenv/Dockerfile", "tasks/*.md", "data/*.json", "data/*.md", "regional/*.md", "regional/*.json", "regional/director/*.md", "regional/training/*.md", "regional/training/*.txt", "regional/openenv/*.yaml", "regional/openenv/Dockerfile"]
