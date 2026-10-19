@@ -155,6 +155,37 @@ regrounds their report-location preference in currently received evidence. It do
 not replay old vehicle coordinates or update its bank on validation/test episodes.
 This is a minimal retrieval baseline, not a claim of improved performance.
 
+## Model director: capped OpenRouter evaluation
+
+The optional stdlib director policy sends public observations to an explicit
+`:free` OpenRouter model using `OR_API_KEY` from the process environment. It forces
+one `submit_action` function call per decision: the model selects report triage,
+complete fleet missions and simulated population messages. All received reports
+are included, so a separate report-retrieval tool is not needed yet. Non-burning
+sensor cells are omitted to reduce prompt size; remembered burning cells keep
+their observation times. This compact view is not identical to baseline input.
+
+```sh
+python -m unittest envs.wildfire_response.tests.test_director
+python -m envs.wildfire_response.director.run \
+  --output .runtime/director-smoke --scenario-id train-000 --max-decisions 8
+```
+
+The default is `nvidia/nemotron-3.5-super-vl:free`, with at most eight requests,
+4,096 output tokens per request and 3.1 seconds between request starts. Explicit
+zero prompt/completion price caps and disabled provider fallback prevent paid
+model substitution. There are no automatic retries. Transport errors stop the
+run and save an incomplete status; malformed/truncated tool output becomes an
+invalid environment action, not a secretly substituted baseline decision.
+
+The runner saves a replayable director trajectory, token/latency metadata and a
+matched deterministic trajectory at the same seed and decision horizon. A short
+smoke run is budget-truncated, not evidence of successful full fire resolution.
+No weights are trained, no real communications are sent, and no private engine
+state is given to the model. Free endpoint inputs may be logged by providers:
+use synthetic observations only, never private calls or personal data. Free
+capacity and quota can prevent a run; the key is never persisted in artifacts.
+
 ## OpenEnv and packaging
 
 Install separately from the demo project:
