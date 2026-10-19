@@ -45,6 +45,12 @@ class DirectorTests(unittest.TestCase):
         self.assertNotIn('secret', serialized)
         self.assertEqual(requests[0]['provider']['max_price'], dict(prompt=0, completion=0))
         self.assertFalse(requests[0]['provider']['allow_fallbacks'])
+        function = requests[0]['tools'][0]['function']
+        self.assertTrue(function['strict'])
+        schema = function['parameters']
+        self.assertEqual(set(schema['required']), set(schema['properties']))
+        scout = schema['properties']['fleet']['properties']['scout_orders']['items']
+        self.assertEqual(scout['properties']['drone_id']['enum'], ['scout-1'])
         self.assertEqual(json.loads(requests[0]['messages'][1]['content'])['last_action_error'], 'Previous target rejected')
         with self.assertRaises(RuntimeError):
             policy(observation)
