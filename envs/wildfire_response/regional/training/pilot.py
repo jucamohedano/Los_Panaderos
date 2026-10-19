@@ -5,6 +5,7 @@ import importlib.metadata
 import json
 import os
 from pathlib import Path
+import platform
 import time
 
 from ...eval.run import dump, source_digest
@@ -19,10 +20,11 @@ MODEL_REVISIONS = {MODEL_ID: MODEL_REVISION,
     'Qwen/Qwen3-0.6B': 'c1899de289a04d12100db370d81485cdf75e47ca'}
 
 
-def run(output, model_id=MODEL_ID, revision=None, steps=2, completion_tokens=768):
+def run(output, model_id=MODEL_ID, revision=None, steps=2, completion_tokens=1536, tool_iterations=8):
     if (type(steps) is not int or not 1 <= steps <= 8 or type(completion_tokens) is not int
-            or not 256 <= completion_tokens <= 2048):
-        raise ValueError('Pilot permits 1–8 optimizer steps and 256–2048 completion tokens')
+            or not 256 <= completion_tokens <= 2048 or type(tool_iterations) is not int
+            or not 4 <= tool_iterations <= 16):
+        raise ValueError('Pilot permits 1–8 optimizer steps, 256–2048 completion tokens and 4–16 tool turns')
     revision = MODEL_REVISIONS.get(model_id) if revision is None else revision
     if model_id not in MODEL_REVISIONS or not isinstance(revision, str) or len(revision) != 40 or any(
             character not in '0123456789abcdef' for character in revision):
@@ -47,7 +49,8 @@ def run(output, model_id=MODEL_ID, revision=None, steps=2, completion_tokens=768
     started = time.perf_counter()
     metadata = dict(model=model_id, revision=revision, benchmark=benchmark, source_sha256=source_digest(),
         gpu=torch.cuda.get_device_name(0), cuda=torch.version.cuda, steps=steps,
-        completion_tokens=completion_tokens, thinking=False, inference_backend='transformers_sdpa',
+        completion_tokens=completion_tokens, max_tool_calling_iterations=tool_iterations,
+        python=platform.python_version(), thinking=False, inference_backend='transformers_sdpa',
         versions={name: importlib.metadata.version(name) for name in ('torch','transformers','trl','peft','huggingface_hub')},
         training_tasks=['regional-train-001', 'regional-train-003'], heldout_evaluation=False,
         reward='Unchanged full-horizon outcome cost; early model stop preserves missions and passively advances time',
@@ -64,13 +67,15 @@ def run(output, model_id=MODEL_ID, revision=None, steps=2, completion_tokens=768
             rows.append(dict(scenario_id=identifier, seed=task['seed'], prompt=[
                 dict(role='system', content=INSTRUCTIONS),
                 dict(role='user', content='Manage this synthetic incident using the supplied tools and public observations. '
-                     'Submit explicit director actions. Continue until done when the token budget allows; '
+                     f'This pilot allows {tool_iterations} tool turns. Use submit_action for normal decisions. '
+                     'Checks are optional: after a valid check, submit that action instead of checking it again. '
+                     'Checking alone never executes orders. Continue until done when the token budget allows; '
                      'if you stop early, the evaluator advances the remaining time with no new orders.')]))
         dataset = Dataset.from_list(rows)
         config = GRPOConfig(output_dir=str(output/'trainer'), max_steps=steps,
             per_device_train_batch_size=1, gradient_accumulation_steps=2,
             per_device_eval_batch_size=2, num_generations=2, num_generations_eval=2,
-            max_completion_length=completion_tokens, max_tool_calling_iterations=2,
+            max_completion_length=completion_tokens, max_tool_calling_iterations=tool_iterations,
             chat_template_kwargs=dict(enable_thinking=False), temperature=.7, top_p=.8, top_k=20,
             learning_rate=1e-5, beta=0.0, bf16=True, gradient_checkpointing=True,
             gradient_checkpointing_kwargs=dict(use_reentrant=False), use_vllm=False,
@@ -124,9 +129,10 @@ def main():
     parser.add_argument('--model', choices=['Qwen/Qwen3-0.6B', MODEL_ID], default=MODEL_ID)
     parser.add_argument('--revision')
     parser.add_argument('--steps', type=int, default=2)
-    parser.add_argument('--completion-tokens', type=int, default=768)
+    parser.add_argument('--completion-tokens', type=int, default=1536)
+    parser.add_argument('--tool-iterations', type=int, default=8)
     args = parser.parse_args()
-    result = run(args.output, args.model, args.revision, args.steps, args.completion_tokens)
+    result = run(args.output, args.model, args.revision, args.steps, args.completion_tokens, args.tool_iterations)
     print(json.dumps({key: value for key, value in result.items() if key not in ('logs', 'before', 'after', 'train')}))
 
 

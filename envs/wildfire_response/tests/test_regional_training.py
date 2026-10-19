@@ -6,6 +6,7 @@ import unittest
 from envs.wildfire_response.regional.baselines import CooperativeBaseline
 from envs.wildfire_response.regional.run import run
 from envs.wildfire_response.regional.training.environment import RegionalTrainingEnv, outcome_reward
+from envs.wildfire_response.regional.training.pilot import run as run_pilot
 
 
 def complete_action(action):
@@ -14,6 +15,14 @@ def complete_action(action):
 
 
 class RegionalTrainingTests(unittest.TestCase):
+    def test_pilot_rejects_unbounded_or_incompatible_requests_before_importing_gpu_dependencies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for options in (dict(steps=0), dict(steps=9), dict(steps=True), dict(tool_iterations=2),
+                            dict(completion_tokens=9999), dict(model_id='unreviewed/model'), dict(revision='main')):
+                with self.assertRaises(ValueError):
+                    run_pilot(Path(directory)/'invalid', **options)
+            self.assertFalse((Path(directory)/'invalid').exists())
+
     def test_early_stop_is_scored_at_the_full_horizon_not_as_free_waiting(self):
         environment = RegionalTrainingEnv()
         public = json.loads(environment.reset('regional-train-001'))

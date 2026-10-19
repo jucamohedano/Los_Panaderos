@@ -89,11 +89,11 @@ OMP_NUM_THREADS=4 TOKENIZERS_PARALLELISM=false \
 HF_HUB_DISABLE_TELEMETRY=1 DO_NOT_TRACK=1 \
 timeout --signal=INT --kill-after=30s 900s \
   .venv-training/bin/python -m envs.wildfire_response.regional.training.pilot \
-  --output .runtime/qwen3-pilot --steps 2 --completion-tokens 768
+  --output .runtime/qwen3-pilot --steps 2 --completion-tokens 1536 --tool-iterations 8
 ```
 
 The pilot uses LoRA rank 8 on attention projections, BF16, SDPA, gradient
-checkpointing, two sampled completions per group, two tool iterations, non-thinking
+checkpointing, two sampled completions per group, eight tool iterations, non-thinking
 mode and no vLLM server/reference-model copy (`beta=0`). Both requested optimizer
 steps and total completion length are bounded. Telemetry integrations and Hub
 uploads are disabled. It performs before/after **training-scenario** smoke scoring,
