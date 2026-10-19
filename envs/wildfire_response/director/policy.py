@@ -80,11 +80,15 @@ class OpenRouterTransport:
 
 
 class DirectorPolicy:
-    def __init__(self, model=DEFAULT_MODEL, max_calls=8, max_tokens=4096, transport=None, interval=3.1):
+    def __init__(self, model=DEFAULT_MODEL, max_calls=8, max_tokens=4096, transport=None, interval=3.1,
+                 tool_mode='forced'):
         if not model.endswith(':free'):
             raise ValueError('This runner permits explicit :free models only')
         if not 1 <= max_calls <= 32 or not 256 <= max_tokens <= 8192 or interval < 0:
             raise ValueError('Invalid call/token/rate budget')
+        if tool_mode not in ('forced', 'auto'):
+            raise ValueError('Unknown tool mode')
+        self.tool_mode = tool_mode
         self.model, self.max_calls, self.max_tokens = model, max_calls, max_tokens
         self.transport = transport if transport is not None else OpenRouterTransport()
         self.interval, self.last_call = interval, None
@@ -104,8 +108,10 @@ class DirectorPolicy:
                       dict(role='user', content=json.dumps(context, separators=(',', ':')))],
             tools=[dict(type='function', function=dict(name='submit_action',
                 description='Assign fleet missions, triage received reports and send simulated instructions.',
-                strict=True, parameters=action_schema(observation)))],
-            tool_choice=dict(type='function', function=dict(name='submit_action')))
+                parameters=action_schema(observation)))])
+        if self.tool_mode == 'forced':
+            payload['tools'][0]['function']['strict'] = True
+            payload['tool_choice'] = dict(type='function', function=dict(name='submit_action'))
         self.calls += 1
         started = self.last_call = time.monotonic()
         response = self.transport(payload)
@@ -113,7 +119,7 @@ class DirectorPolicy:
                       served_model=response.get('model'), usage=response.get('usage', {}),
                       finish_reason=(response.get('choices') or [{}])[0].get('finish_reason'),
                       seconds=round(time.monotonic()-started, 3), protocol_error=None,
-                      choice_version=CHOICE_VERSION, choices=context['choices'])
+                      choice_version=CHOICE_VERSION, tool_mode=self.tool_mode, choices=context['choices'])
         self.records.append(record)
         try:
             choice = response['choices'][0]

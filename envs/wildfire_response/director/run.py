@@ -13,17 +13,17 @@ from .policy import DEFAULT_MODEL, DirectorPolicy
 from .choices import CHOICE_VERSION
 
 
-def run(output, scenario_id='train-000', decisions=8, model=DEFAULT_MODEL, transport=None):
+def run(output, scenario_id='train-000', decisions=8, model=DEFAULT_MODEL, transport=None, tool_mode='forced'):
     output = Path(output)
     if output.exists():
         raise ValueError('Choose a fresh output directory')
     env = WildfireResponseEnv(max_decisions=decisions)
-    policy = DirectorPolicy(model=model, max_calls=decisions, transport=transport)
+    policy = DirectorPolicy(model=model, max_calls=decisions, transport=transport, tool_mode=tool_mode)
     observation, info = env.reset(scenario_id)
     task = get_task(scenario_id)
     trajectory = dict(version=SCHEMA_VERSION, reward_version=REWARD_VERSION, scenario_id=scenario_id,
                       split=task['split'], seed=task['seed'], max_decisions=decisions, policy='director',
-                      model=model, choice_version=CHOICE_VERSION,
+                      model=model, tool_mode=tool_mode, choice_version=CHOICE_VERSION,
                       initial_observation=observation, initial_info=info, transitions=[],
                       engine_revision=subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip(),
                       source_digest=source_digest())
@@ -51,7 +51,7 @@ def run(output, scenario_id='train-000', decisions=8, model=DEFAULT_MODEL, trans
     baseline, _ = run_episode(task, 'deterministic', max_decisions=decisions)
     dump(output / 'deterministic.json.gz', baseline)
     summary = dict(status='complete', scenario_id=scenario_id, max_decisions=decisions,
-                   choice_version=CHOICE_VERSION,
+                   choice_version=CHOICE_VERSION, tool_mode=tool_mode,
                    director_reward=trajectory['total_reward'], deterministic_reward=baseline['total_reward'],
                    director_replayed_reward=replay(trajectory), requests=policy.calls,
                    invalid_actions=env.evaluator_state()['counters']['invalid_actions'],
@@ -67,9 +67,10 @@ def main():
     parser.add_argument('--scenario-id', default='train-000')
     parser.add_argument('--max-decisions', type=int, choices=range(1, 33), default=8)
     parser.add_argument('--model', default=DEFAULT_MODEL)
+    parser.add_argument('--tool-mode', choices=['forced', 'auto'], default='forced')
     args = parser.parse_args()
     try:
-        print(json.dumps(run(args.output, args.scenario_id, args.max_decisions, args.model)))
+        print(json.dumps(run(args.output, args.scenario_id, args.max_decisions, args.model, tool_mode=args.tool_mode)))
     except (RuntimeError, ValueError) as error:
         parser.exit(1, str(error)+'\n')
 

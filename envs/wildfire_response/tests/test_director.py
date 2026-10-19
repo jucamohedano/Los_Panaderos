@@ -126,6 +126,19 @@ class DirectorTests(unittest.TestCase):
         self.assertEqual(policy.records[0]['proposal'], proposal)
         self.assertIsNotNone(policy.records[0]['protocol_error'])
 
+    def test_auto_tool_mode_omits_unsupported_forcing_but_validates_choices(self):
+        requests = []
+        def transport(payload):
+            requests.append(payload)
+            return response(hold_proposal(build_choices(self.observation)))
+        policy = DirectorPolicy(model='thinkingmachines/inkling:free', transport=transport,
+                                tool_mode='auto', interval=0)
+        self.env._validate_action(policy(self.observation))
+        self.assertNotIn('tool_choice', requests[0])
+        self.assertNotIn('strict', requests[0]['tools'][0]['function'])
+        self.assertTrue(requests[0]['provider']['require_parameters'])
+        self.assertEqual(policy.records[0]['tool_mode'], 'auto')
+
 
 if __name__ == '__main__':
     unittest.main()
