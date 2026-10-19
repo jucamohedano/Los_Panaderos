@@ -201,6 +201,14 @@ su reparto entre distritos y las **100 personas de la granja** son supuestos
 del escenario. Los puntos de encuentro no son un plan oficial de evacuación.
 Es un prototipo educativo, no una predicción operativa de incendios.
 
+## Entorno programático de entrenamiento
+
+[Wildfire Response](envs/wildfire_response/README.md) ofrece episodios reproducibles
+con avisos sintéticos ruidosos, coordinación de flota, comunicaciones retardadas,
+recompensas verificables y un adaptador OpenEnv opcional. El núcleo funciona en
+CPU sin claves de API. Su paquete y sus evaluaciones son independientes del
+servidor de demostración.
+
 ## Reproducción estática
 
 El árbol raíz incluye una reproducción estática de la demo en GitHub Pages,

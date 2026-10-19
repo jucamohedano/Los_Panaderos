@@ -2,6 +2,7 @@
 *.mcpb
 __pycache__/
 .venv/
+.venv-wildfire/
 .venv-workers/
 .env
 .runtime/
@@ -9,3 +10,5 @@ __pycache__/
 python_modules/
 node_modules/
 *.pyc
+*.egg-info/
+build/

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "build_backend"
+backend-path = ["."]
+
+[project]
+name = "wildfire-response-env"
+version = "0.1.0"
+description = "Seeded emergency coordination episodes with noisy reports and delayed communications"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+openenv = ["openenv==0.7.0", "uvicorn>=0.30,<1"]
+dev = ["httpx>=0.27,<1"]
+dataset = ["pyarrow>=18,<24"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["envs", "envs.wildfire_response*", "simulator"]
+exclude = ["envs.wildfire_response.tests*"]
+
+[tool.setuptools.package-data]
+simulator = ["static/maps/brunete-illustrated.json"]
+"envs.wildfire_response" = ["openenv/openenv.yaml", "openenv/Dockerfile", "tasks/*.md", "data/*.json", "data/*.md"]

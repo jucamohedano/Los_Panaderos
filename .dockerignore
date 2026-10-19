@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+.runtime
+.codex
+.cursor
+.venv*
+.wrangler
+**/__pycache__
+**/*.egg-info
+**/build
+node_modules
