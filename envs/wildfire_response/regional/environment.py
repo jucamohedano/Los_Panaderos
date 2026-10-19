@@ -7,10 +7,11 @@ from .data import geometry, load_pack
 from .fire import RegionalFire
 from .scenarios import get_scenario
 
-VERSION = 'regional-response-v2-alpha'
-REWARD_VERSION = 'regional-outcome-cost-v1'
+VERSION = 'regional-response-v2-alpha.2'
+REWARD_VERSION = 'regional-outcome-cost-v2'
 WEIGHTS = dict(exposed_population=100, burned_terrain=1, unnecessary_evacuation=.1,
-               committed_unit_minutes=.00005, redundant_notices=.002, invalid_actions=.05, abandonment=102)
+               committed_unit_minutes=.00005, redundant_notices=.002, invalid_actions=.05, abandonment=102,
+               unresolved_incident=2)
 
 
 class RegionalResponseEnv:
@@ -36,6 +37,7 @@ class RegionalResponseEnv:
         self.events = sorted(copy.deepcopy(self.task['events']), key=lambda item: (item['tick'], item['kind'] != 'wind'))
         self.report_events = sorted(copy.deepcopy(self.task['reports']), key=lambda item: (item['received_at'], item['id']))
         self.ledger, self.offers, self.memory = {}, {}, {}
+        self.observed_sectors = {}
         self.queue, self.acks, self.pending_requests = [], [], set()
         self.notice_keys = set()
         self.counters = dict(committed_unit_minutes=0, unnecessary_evacuation=0, redundant_notices=0,
@@ -43,6 +45,8 @@ class RegionalResponseEnv:
         self.daylight, self.decisions, self.invalid_streak = True, 0, 0
         self.terminated = self.truncated = False
         self.serial = 0
+        self.audit_minutes = []
+        self.preview_remaining = 3
         self._events(0)
         self._receive()
         self._sense()
@@ -71,7 +75,8 @@ class RegionalResponseEnv:
 
     def _receive(self):
         for report in [item for item in self.report_events if item['received_at'] <= self.sim.tick][:20]:
-            self.ledger[report['id']] = copy.deepcopy(report)
+            self.ledger[report['id']] = {key: copy.deepcopy(report[key]) for key in
+                ('id', 'observed_at', 'received_at', 'location', 'text', 'source', 'channel', 'source_role') if key in report}
             self.ledger[report['id']]['available_at'] = self.sim.tick
             self.report_events.remove(report)
 
@@ -87,7 +92,9 @@ class RegionalResponseEnv:
         sectors = {f'protect:{identifier}': dict(id=f'protect:{identifier}', center=group['home'][:])
                    for identifier, group in self.sim.groups.items()}
         for report in self.ledger.values():
-            sectors['report:'+report['id']] = dict(id='report:'+report['id'], center=report['location'][:])
+            if report.get('location') is not None:
+                sectors['report:'+report['id']] = dict(id='report:'+report['id'], center=report['location'][:])
+        sectors.update(copy.deepcopy(self.observed_sectors))
         return sectors
 
     def _sense_at(self, point, radius, source):
@@ -97,6 +104,9 @@ class RegionalResponseEnv:
                     cell = self.sim.cells[row][column]
                     self.memory[(column, row)] = dict(x=column, y=row, burning=self.sim.burning(cell),
                         observed_at=self.sim.tick, source=source)
+                    if self.sim.burning(cell):
+                        identifier=f'observed:{column}:{row}'
+                        self.observed_sectors[identifier]=dict(id=identifier,center=[column,row],observed_at=self.sim.tick)
 
     def _sense(self):
         for identifier, group in self.sim.groups.items():
@@ -284,12 +294,29 @@ class RegionalResponseEnv:
         values = dict(self.counters)
         values['unnecessary_evacuation'] /= population*120
         values.update(exposed_population=sum(group['burnt'] for group in self.sim.groups.values())/population,
-                      burned_terrain=sum(cell['burned'] for row in self.sim.cells for cell in row)/(self.sim.width*self.sim.height))
+                      burned_terrain=sum(cell['burned'] for row in self.sim.cells for cell in row)/(self.sim.width*self.sim.height),
+                      unresolved_incident=int((self.terminated or self.truncated) and (
+                          any(self.sim.burning(cell) for row in self.sim.cells for cell in row)
+                          or any(event['kind']=='ignition' for event in self.events))))
         return values
 
     def _cost(self):
         components = self._components()
         return sum(WEIGHTS[key]*components[key] for key in WEIGHTS)
+
+    def check_action(self, action):
+        if self.sim is None or self.terminated or self.truncated:
+            raise RuntimeError('A live episode is required')
+        if self.preview_remaining == 0:
+            raise ValueError('Three action checks per decision; advance time before checking again')
+        self.preview_remaining -= 1
+        try:
+            self._validate(action)
+            error = None
+        except (ValueError, TypeError, KeyError, AttributeError, OverflowError, RecursionError) as exception:
+            error = str(exception)[:200]
+        return dict(valid=error is None, error=error, remaining_checks=self.preview_remaining,
+                    scope='Current public action contract only; no prediction of allocation, suppression or future conditions')
 
     def step(self, action):
         if self.sim is None or self.terminated or self.truncated:
@@ -299,7 +326,7 @@ class RegionalResponseEnv:
             self._validate(action)
             self._apply(copy.deepcopy(action))
             self.invalid_streak = 0
-        except (ValueError, TypeError, KeyError, AttributeError, OverflowError) as exception:
+        except (ValueError, TypeError, KeyError, AttributeError, OverflowError, RecursionError) as exception:
             error = str(exception)[:200]
             self.counters['invalid_actions'] += 1
             self.invalid_streak += 1
@@ -313,9 +340,15 @@ class RegionalResponseEnv:
             self.sim.step()
             self._sense()
             self.counters['committed_unit_minutes'] += sum(unit['state'] not in ('available', 'unavailable') for unit in self.resources.values())
-            if not self.task['events']:
+            if not any(event['kind'] == 'ignition' for event in self.task['events']):
                 self.counters['unnecessary_evacuation'] += sum(group['count'] for group in self.sim.groups.values() if group['status'] != 'unwarned')
+            self.audit_minutes.append(dict(minute=self.sim.tick,
+                resource_states={identifier: unit['state'] for identifier, unit in self.resources.items()},
+                resource_water={identifier: unit['water_litres'] for identifier, unit in self.resources.items()},
+                wind=list(self.sim.wind), daylight=self.daylight,
+                population_status={identifier: group['status'] for identifier, group in self.sim.groups.items()}))
         self._receive()
+        self.preview_remaining = 3
         self.terminated = (self.sim.tick >= self.task['minimum_ticks'] and not self.events and not self.report_events
             and not self.queue and not any(self.sim.burning(cell) for row in self.sim.cells for cell in row)
             and not any(group['status'] in ('evacuating', 'blocked') for group in self.sim.groups.values())
@@ -337,6 +370,7 @@ class RegionalResponseEnv:
                              travel='assumed off-map transit times, not computed road or flight routes',
                              effectiveness='uncalibrated sector-level effects, not a prediction model'),
             rules=dict(time='one tick is one assumed model minute, not a calibrated forecast',
+                objective='Protect people and resolve the incident; active or pending fire at the terminal horizon incurs a penalty',
                 wind='relative vector points TO spread; positive X east, positive Y south; not m/s',
                 inform='does not initiate population movement', evacuate='movement begins only after delivery',
                 dispatch='request -> base offer -> director authorization -> mobilization -> travel -> arrival',
@@ -358,4 +392,5 @@ class RegionalResponseEnv:
 
     def evaluator_state(self):
         return dict(components=self._components(), cost=self._cost(), events=copy.deepcopy(self.events),
-                    scenario=copy.deepcopy(self.task), fire_checkpoint=self.sim.checkpoint())
+                    scenario=copy.deepcopy(self.task), fire_checkpoint=self.sim.checkpoint(),
+                    audit_minutes=copy.deepcopy(self.audit_minutes), communications=copy.deepcopy(self.acks))

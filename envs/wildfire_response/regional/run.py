@@ -6,12 +6,17 @@ from pathlib import Path
 import time
 
 from ..eval.run import dump, load, source_digest
-from .baselines import CooperativeBaseline, passive
+from .baselines import CooperativeBaseline, RandomValidBaseline, blanket_warning, passive
 from .data import PACK
 from .environment import RegionalResponseEnv, VERSION, REWARD_VERSION
+from .verifier import verify
 
 
 def replay(trajectory):
+    if trajectory['version'] != VERSION:
+        raise ValueError('Regional observation/action schema changed; use the recorded revision for old replays')
+    if trajectory['reward_version'] != REWARD_VERSION:
+        raise ValueError('Regional reward version changed; use the recorded revision to replay older experiments')
     if trajectory['pack_sha256'] != hashlib.sha256(PACK.read_bytes()).hexdigest():
         raise ValueError('Regional evidence/assumption pack changed')
     env = RegionalResponseEnv(max_decisions=trajectory['max_decisions'], ticks_per_action=trajectory['ticks_per_action'])
@@ -36,7 +41,11 @@ def run(output, scenario_id='regional-000', policy_name='cooperative', max_decis
         raise ValueError('Choose a fresh rollout directory')
     env = RegionalResponseEnv(max_decisions=max_decisions)
     observation, info = env.reset(scenario_id)
-    policy = CooperativeBaseline() if policy_name == 'cooperative' else passive
+    policies = dict(cooperative=CooperativeBaseline, passive=lambda: passive,
+                    random=lambda: RandomValidBaseline(env.seed), blanket_warning=lambda: blanket_warning)
+    if policy_name not in policies:
+        raise ValueError('Unknown regional baseline')
+    policy = policies[policy_name]()
     trajectory = dict(version=VERSION, reward_version=REWARD_VERSION, scenario_id=scenario_id, seed=env.seed,
                       policy=policy_name, max_decisions=max_decisions, ticks_per_action=env.ticks_per_action,
                       initial_observation=observation, initial_info=info, transitions=[],
@@ -53,6 +62,7 @@ def run(output, scenario_id='regional-000', policy_name='cooperative', max_decis
             break
     private = env.evaluator_state()
     trajectory['total_reward'] = sum(item['reward'] for item in trajectory['transitions'])
+    verification = verify(trajectory, private)
     summary = dict(scenario=scenario_id, policy=policy_name, total_reward=trajectory['total_reward'],
                    components=private['components'], terminated=terminated, truncated=truncated,
                    decisions=env.decisions, model_minutes=env.sim.tick,
@@ -63,6 +73,7 @@ def run(output, scenario_id='regional-000', policy_name='cooperative', max_decis
     dump(output/'trajectory.json.gz', trajectory)
     dump(output/'evaluator.json.gz', private)
     dump(output/'summary.json', summary)
+    dump(output/'verification.json', verification)
     return summary
 
 
@@ -70,7 +81,7 @@ def main():
     parser = argparse.ArgumentParser(__doc__)
     parser.add_argument('--output', default='.runtime/regional-v2-demo')
     parser.add_argument('--scenario-id', default='regional-000')
-    parser.add_argument('--policy', choices=['cooperative', 'passive'], default='cooperative')
+    parser.add_argument('--policy', choices=['cooperative', 'passive', 'random', 'blanket_warning'], default='cooperative')
     parser.add_argument('--max-decisions', type=int, default=60)
     parser.add_argument('--replay')
     args = parser.parse_args()

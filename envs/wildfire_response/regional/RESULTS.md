@@ -1,5 +1,9 @@
 # Regional v2 acceptance — 19 October 2026
 
+These are the initial `regional-outcome-cost-v1` alpha results at `8e562cf`.
+The current contract/reward and grouped-task audit are described in
+[QUALITY.md](QUALITY.md); historical scores here are not mixed with reward v2.
+
 Implementation: `codex/regional-wildfire-response-v2`, initial checkpoint `8e562cf`.
 The source/data pack is an alpha prototype, not an operational fire forecast.
 

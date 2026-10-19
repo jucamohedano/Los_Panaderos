@@ -85,6 +85,14 @@ whole action is at most 64 KiB. Reasons do not earn reward.
   A request is not a dispatch. The simulated owning base can offer or deny it.
   The request/offer round trip takes one assumed model minute. Busy, unavailable
   or currently grounded resources are denied, not silently replaced.
+- **Action checks:** `check_action(action)` performs at most three non-advancing
+  contract checks per decision. It does not mutate missions, spend resource time,
+  predict a base's reply or inspect future fire. Checks reset after advancing time.
+  A valid draft is not a promise of successful dispatch or suppression.
+- **Targets:** report and protection sectors are supplemented by named sectors
+  from received sensor fire sightings. Their IDs remain available after a sighting
+  clears, so standing missions do not lose their target identity. Hidden fire never
+  creates a target. This prevents expanding fire edges becoming unaddressable.
 - **Offers:** reserve exactly one resource for eight model minutes. Their assumed
   lead time includes mobilization and travel after authorization. A live offer
   must be explicitly authorized; expired/committed offers cannot dispatch again.
@@ -131,11 +139,35 @@ are synthetic and spread toward nearby settlements through the kernel; there are
 no scripted later ignitions directly inside occupied settlements. These are six
 acceptance configurations, not a frozen train/validation/test benchmark.
 
-Reward is negative incremental outcome cost under `regional-outcome-cost-v1`:
+`regional-task-pack-v0.2` additionally defines 36 draft synthetic configurations:
+24 training, 6 validation and 6 test, all families in every split. Spatial/configuration
+groups and seeds are disjoint; this is not a held-out-real-incident or held-out-map
+claim. Reports include delayed duplicates, conflicting claims and locationless noise;
+generation annotations stay private. Synthetic wind is aligned with the displaced
+report location to preserve meaningful risk variation, not taken from weather data.
+
+```sh
+python -m envs.wildfire_response.regional.evaluate \
+  --output .runtime/regional-task-pack --generate-only
+python -m envs.wildfire_response.regional.evaluate \
+  --output .runtime/regional-training-calibration --split train
+```
+
+Exports separate public task metadata from private full configurations. Training
+calibration compares passive, seeded random-valid, blanket-warning and cooperative
+policies, independently verifies every trajectory and replays it. Weak-policy flags
+are diagnostics, not an automatic selection/culling rule. Validation/test outcomes
+are not consulted for that training calibration. No benchmark readiness or optimum
+is claimed just because a scripted reference beats weak policies.
+
+Reward is negative incremental outcome cost under `regional-outcome-cost-v2`:
 population exposure fraction ×100, burned-terrain fraction ×1, unnecessary evacuation
 person-time/(population×120) ×0.1 in no-ignition tasks, committed resource-minutes
 ×0.00005, redundant notices ×0.002, invalid actions ×0.05 and invalid-action
-abandonment ×102. Offers, requests and messages never earn positive reward by volume.
+abandonment ×102, plus a terminal cost of 2 if active or scheduled fire remains
+unresolved at the horizon. The versioned terminal term closes the "warn everyone,
+leave the fire burning" shortcut. Old v1 alpha scores must be replayed on their
+recorded revision, not mixed with v2. Offers, requests and messages never earn positive reward by volume.
 Resource commitment costs discourage reserving or deploying every unit for free,
 but need calibration across broader cases before any RL claim. Scores are not
 comparable with v1. Explain exposure and resource cost separately from total reward.
@@ -147,8 +179,34 @@ all scheduled incidents/reports resolved, no active fire or relocating populatio
 and all resources returned; reaching the budget is not resolution.
 
 The runner saves public trajectories, separate private evaluator state, outcome
-components, pack/source digests and exact-replay checks. Existing v1 model tools
-and OpenEnv adapter are **not wired to v2** yet. No paid inference, model training,
-deployment or publication was performed. Next steps are sourced base geocoding,
+components, pack/source digests and exact-replay checks. A separately implemented
+verifier reconstructs resource-minutes, notice duplication, water/lifecycle rules,
+population/terrain components and reward from raw minute records and checkpoints.
+It never calls the simulator's `_components()` or `_cost()`. This checks accounting
+and logical invariants, not independent wildfire physics or global optimality.
+
+## Dedicated OpenEnv server and external client
+
+The optional OpenEnv 0.7.0 adapter is separate from the v1 server. It supports one
+active session, opaque task discovery and typed bounded actions. No private scoring
+or checkpoint API is exposed. Install the existing `[openenv,dev]` extras, then:
+
+```sh
+python -m envs.wildfire_response.regional.openenv.server --port 8001
+python -m envs.wildfire_response.regional.openenv.rollout --url http://127.0.0.1:8001
+REGIONAL_TEST_URL=http://127.0.0.1:8001 python -m unittest \
+  envs.wildfire_response.tests.test_regional_openenv
+```
+
+Use `RegionalClient` and `RegionalAction` from `regional.openenv.client` and
+`regional.openenv.models`. `operation='check'` returns a zero-reward, non-advancing
+check in observation metadata. The default `operation='advance'` applies the action
+and advances time. Malformed wire requests are rejected before stepping; external
+harnesses must bound their retry/turn budget too. The Docker specification builds
+from the repository root with `-f envs/wildfire_response/regional/openenv/Dockerfile`;
+it is supplied but has not been built here because Docker is unavailable.
+
+The existing v1 model director does not control v2. No paid inference, model training,
+public deployment or publication was performed. Next steps are sourced base geocoding,
 road/land-cover data, measured operational timing where available, wider scenario
 calibration and a separately typed v2 model/OpenEnv interface.
