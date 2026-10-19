@@ -8,6 +8,9 @@ See [acceptance results and limitations](RESULTS.md) for measured checks and rol
 The [frozen benchmark protocol](BENCHMARK.md), [held-out results](HELDOUT.md) and
 [v2 director tools](director/README.md) document the next stage. Model-provider
 requests remain paused; the director has been exercised with scripted transports.
+A separate [local Qwen3 training pilot](training/RESULTS.md) now exercises real
+LoRA/GRPO on the supplied GPU. It verifies the training path but does not yet
+demonstrate a useful learned director; no model checkpoint has been published.
 
 ## Evidence, not invented operational records
 
@@ -213,7 +216,8 @@ it is supplied but has not been built here because Docker is unavailable.
 
 The existing v1 model director does not control v2; the separate
 [v2 director adapter](director/README.md) now implements that interface and has
-offline/local-server acceptance tests. No model-provider inference, model training,
-public deployment or publication was performed for this stage. Next steps are a
-separately authorized bounded model trial, sourced base geocoding, road/land-cover
-data, measured operational timing where available and wider scenario validation.
+offline/local-server acceptance tests. The separate optional training pilot now
+runs local-weight inference and bounded LoRA/GRPO; external model-provider calls,
+public deployment and publication remain paused. Next steps include a verified
+training-only multi-turn warm start, sourced base geocoding, road/land-cover data,
+measured operational timing where available and wider scenario validation.
