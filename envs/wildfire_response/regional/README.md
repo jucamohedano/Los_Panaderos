@@ -5,6 +5,9 @@ two ground bases and a shared aircraft. No model API key is needed. The original
 `WildfireResponseEnv`, drone demo, scenario splits and reward version remain unchanged.
 There is no live dispatch, HappyRobot call or real communication integration here.
 See [acceptance results and limitations](RESULTS.md) for measured checks and rollouts.
+The [frozen benchmark protocol](BENCHMARK.md), [held-out results](HELDOUT.md) and
+[v2 director tools](director/README.md) document the next stage. Model-provider
+requests remain paused; the director has been exercised with scripted transports.
 
 ## Evidence, not invented operational records
 
@@ -139,8 +142,10 @@ are synthetic and spread toward nearby settlements through the kernel; there are
 no scripted later ignitions directly inside occupied settlements. These are six
 acceptance configurations, not a frozen train/validation/test benchmark.
 
-`regional-task-pack-v0.2` additionally defines 36 draft synthetic configurations:
-24 training, 6 validation and 6 test, all families in every split. Spatial/configuration
+`regional-task-pack-v0.2` additionally defines 36 synthetic alpha configurations:
+24 training, 6 validation and 6 test, all families in every split. These existing
+configurations are now frozen by `regional-benchmark-v0.2.0`, not regenerated
+after held-out evaluation. Spatial/configuration
 groups and seeds are disjoint; this is not a held-out-real-incident or held-out-map
 claim. Reports include delayed duplicates, conflicting claims and locationless noise;
 generation annotations stay private. Synthetic wind is aligned with the displaced
@@ -153,7 +158,7 @@ python -m envs.wildfire_response.regional.evaluate \
   --output .runtime/regional-training-calibration --split train
 ```
 
-Exports separate public task metadata from private full configurations. Training
+Exports first verify the committed lock and separate public task metadata from private full configurations. Training
 calibration compares passive, seeded random-valid, blanket-warning and cooperative
 policies, independently verifies every trajectory and replays it. Weak-policy flags
 are diagnostics, not an automatic selection/culling rule. Validation/test outcomes
@@ -206,7 +211,9 @@ harnesses must bound their retry/turn budget too. The Docker specification build
 from the repository root with `-f envs/wildfire_response/regional/openenv/Dockerfile`;
 it is supplied but has not been built here because Docker is unavailable.
 
-The existing v1 model director does not control v2. No paid inference, model training,
-public deployment or publication was performed. Next steps are sourced base geocoding,
-road/land-cover data, measured operational timing where available, wider scenario
-calibration and a separately typed v2 model/OpenEnv interface.
+The existing v1 model director does not control v2; the separate
+[v2 director adapter](director/README.md) now implements that interface and has
+offline/local-server acceptance tests. No model-provider inference, model training,
+public deployment or publication was performed for this stage. Next steps are a
+separately authorized bounded model trial, sourced base geocoding, road/land-cover
+data, measured operational timing where available and wider scenario validation.
