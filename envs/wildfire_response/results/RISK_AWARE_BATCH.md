@@ -103,3 +103,31 @@ Before another comparison, review whether static action effects and wind convent
 are stated explicitly enough in the actor contract. In particular, information-only
 messages do not initiate evacuation; the benchmark's scripted ignitions also limit
 real-world interpretations. The risk-aware profile is not promoted.
+
+## Gemma follow-up: confirmed live limit
+
+With separate user authorization, attempted `google/gemma-4-31b-it:free` on
+`train-009`, retaining the same risk-aware prompt, forced named-choice interface,
+seed, initial observation and 32-decision episode horizon. A separate request cap
+of twelve bounded this single-case comparison. Initial observations and seeds
+were checked against the completed Nemotron trajectory and match exactly.
+
+**The first request returned HTTP 429.** Stopped immediately after that one attempt:
+zero returned completions, zero simulation decisions and no model comparison score.
+The failure returned no usage record. There was no retry, model/provider rotation
+or paid fallback after the limit. This is an actual live rejection, unlike the
+simulated 429 used in unit tests.
+
+Artifacts: `.runtime/director-gemma-risk-aware-2026-10-19/`, including
+`stop-status.json`, `status.json`, the empty request ledger and a zero-transition
+partial trajectory. These are not demonstrations or evidence of Gemma performance.
+HTTP 429 alone does not identify whether the exhausted allowance was account-wide,
+provider-specific, per-minute or daily; no reset time is inferred.
+
+Pause OpenRouter inference until the applicable limit resets or choose a separately
+authorized provider. Groq remains a possible alternative, requiring its own key,
+provider-specific parameter handling, smaller prompts and free-tier pacing. No
+Groq calls or new credential provisioning were performed.
+
+The fourteen director/batch regression tests pass after the attempted comparison;
+no Python source or prompt changes were needed for this run.
