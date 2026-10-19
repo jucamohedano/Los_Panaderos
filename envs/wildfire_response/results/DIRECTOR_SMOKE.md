@@ -1,5 +1,42 @@
 # OpenRouter director smoke test — 19 October 2026
 
+## Named-choice rerun
+
+After replacing raw engine orders with `wildfire-director-choices-v1`, reran the
+same model, scenario `train-000`, seed and four-decision horizon:
+
+- **4/4 valid actions, zero invalid actions**, versus 2/4 valid previously.
+- Director reward **-0.006006947544642857**, versus **-0.10401570870535715** previously.
+- Matched deterministic reward remains **-0.000007672991071428572**.
+- Replay reproduces the director observations and reward exactly.
+- Runtime **83.476 seconds**; four requests, **23,871 prompt tokens** and
+  **1,240 completion tokens**; provider-reported cost **0**.
+- Still budget-truncated at 32 ticks, not a naturally resolved fire.
+
+The model selected a broadcast informing `town` on all four decisions, incurring
+three redundant-message penalties. This is a remaining policy-quality issue, not
+an action-format failure. Repeated messages are deliberately not silently removed.
+The short single-seed comparison demonstrates improved command compliance, not
+statistically established tactical superiority or generalization.
+
+The translator offers per-vehicle named options derived only from public target
+candidates and district status. Exact containment coordinates, role-specific order
+fields and recipient/channel mapping are encoded mechanically. The model chooses
+which option to use; unknown selections are rejected rather than repaired or
+replaced by a deterministic decision. Single-waypoint patrol options narrow the
+original action space; historical raw-order results are therefore not identical
+action-space benchmarks. Proposals and the current catalog are recorded in
+`requests.json` for auditing.
+
+All **33 local tests pass**. Additionally validated **272** individual named fleet
+options against engine validation at tick 16 across all six scenario families;
+this is offline interface validation, not six model evaluations. Eventual delivery
+is still revalidated by the engine as the world changes.
+
+Local artifacts: `.runtime/director-openrouter-named-2026-10-19/`.
+Implementation commit: `e2c0e50`. The sections below retain the earlier raw-order
+attempts for comparison.
+
 Model: `nvidia/nemotron-3.5-super-vl:free`, invoked with the user's existing
 OpenRouter credential. No credential was copied into the repository or artifacts.
 The final run uses strict role-specific function schemas, extended reasoning
