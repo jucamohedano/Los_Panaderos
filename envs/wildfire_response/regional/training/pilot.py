@@ -69,7 +69,7 @@ def run(output, model_id=MODEL_ID, revision=None, steps=2, completion_tokens=768
         dataset = Dataset.from_list(rows)
         config = GRPOConfig(output_dir=str(output/'trainer'), max_steps=steps,
             per_device_train_batch_size=1, gradient_accumulation_steps=2,
-            per_device_eval_batch_size=1, num_generations=2, num_generations_eval=2,
+            per_device_eval_batch_size=2, num_generations=2, num_generations_eval=2,
             max_completion_length=completion_tokens, max_tool_calling_iterations=2,
             chat_template_kwargs=dict(enable_thinking=False), temperature=.7, top_p=.8, top_k=20,
             learning_rate=1e-5, beta=0.0, bf16=True, gradient_checkpointing=True,
