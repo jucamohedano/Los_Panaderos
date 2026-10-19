@@ -1,5 +1,27 @@
 # OpenRouter director smoke test — 19 October 2026
 
+## Inkling comparison blocked by endpoint access
+
+Attempted `thinkingmachines/inkling:free` on the same `train-000` scenario with a
+four-decision budget and named-choice interface. The public model listing reports
+zero prompt/completion prices and tool support, but not forced `tool_choice`.
+Added an explicit `--tool-mode auto` compatibility mode, retaining all client-side
+choice validation and zero-price/provider-fallback restrictions.
+
+OpenRouter returned **HTTP 403 before the first decision**. A single diagnostic
+request confirmed the reason: this free endpoint is restricted to agentic harnesses
+recognized by OpenRouter and directs users to its supported apps list. Our custom
+runner was not accepted. The [official model page](https://openrouter.ai/thinkingmachines/inkling:free)
+also documents the agentic-harness restriction and provider logging of inputs.
+
+Two request attempts, both access-rejected; **zero model decisions, no reward,
+no valid model comparison and no usage/cost record returned**. The failed runner
+artifact is `.runtime/director-inkling-2026-10-19/`, marked incomplete. This is an
+access restriction, not a failed wildfire policy. No paid endpoint was substituted,
+and the application did not impersonate a supported app to bypass the restriction.
+Use an authorized supported integration, obtain access for this harness, or select
+another available free endpoint before rerunning the comparison.
+
 ## Named-choice rerun
 
 After replacing raw engine orders with `wildfire-director-choices-v1`, reran the

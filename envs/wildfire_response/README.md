@@ -178,6 +178,10 @@ their observation times. This compact view is not identical to baseline input.
 python -m unittest envs.wildfire_response.tests.test_director
 python -m envs.wildfire_response.director.run \
   --output .runtime/director-smoke --scenario-id train-000 --max-decisions 8
+# Inkling advertises tools but not forced tool_choice; use automatic tool calling:
+python -m envs.wildfire_response.director.run \
+  --output .runtime/director-inkling --scenario-id train-000 --max-decisions 4 \
+  --model thinkingmachines/inkling:free --tool-mode auto
 ```
 
 The default is `nvidia/nemotron-3.5-super-vl:free`, with at most eight requests,
@@ -188,6 +192,10 @@ zero prompt/completion price caps and disabled provider fallback prevent paid
 model substitution. There are no automatic retries. Transport errors stop the
 run and save an incomplete status; malformed/truncated tool output becomes an
 invalid environment action, not a secretly substituted baseline decision.
+`--tool-mode auto` omits provider-specific forced-choice and strict flags for
+models that do not advertise them. The same named choices and client-side checks
+still apply; ordinary text instead of a valid tool call incurs an invalid action.
+The requested mode is recorded so comparisons disclose this compatibility difference.
 
 The runner saves a replayable director trajectory, the model's proposals and each
 decision's choice catalog, token/latency metadata and a
